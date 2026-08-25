@@ -14,15 +14,17 @@ It watches the clipboard for a 9- or 10-digit AnyDesk address, asks for confirma
 - Manual connection from the tray menu or by double-clicking the tray icon
 - Automatically submits a configured unattended-access password
 - Starts AnyDesk first when AnyDesk has been fully exited, then connects after initialization
-- Add/remove the launcher from Windows startup
+- Checked Windows startup toggle
+- Manual update checks through GitHub Releases with SHA-256 verification, self-replacement, and restart
 - Clipboard image preview with explicit approval before OpenRouter Vision analysis
 - OpenRouter API Key stored in Windows Credential Manager
+- Settings reset, backup, and restore
 - Context-specific OpenRouter, network, and analysis errors
 - Korean and English UI
 - Language switching from the tray menu without restarting
 - Korean is the default language
 - Embedded application and tray icon
-- Single EXE deployment; `config.ini` is created on first run if missing
+- Single EXE deployment; user settings are stored under `%LOCALAPPDATA%`
 
 ## Requirements
 
@@ -55,10 +57,13 @@ You can also open a manual connection dialog by:
 
 - Remote Connection
 - Image Auto Analysis
+- Run at Startup
 - Change Default Password
 - OpenRouter Settings
-- Add to Startup
-- Remove from Startup
+- Check for Updates
+- Back Up Settings
+- Restore Settings
+- Reset Settings
 - Language
   - 한국어
   - English
@@ -66,7 +71,13 @@ You can also open a manual connection dialog by:
 
 ## Configuration
 
-`config.ini` is stored next to the executable.
+`config.ini` is stored under the current Windows user's Local AppData directory instead of next to the executable:
+
+```text
+%LOCALAPPDATA%\QuickAnydeskConnect\config.ini
+```
+
+If an older version left a valid `config.ini` beside the EXE and no user-profile configuration exists yet, it is migrated automatically once on the next launch.
 
 ```ini
 [anydesk]
@@ -88,8 +99,16 @@ Supported language values:
 If `[general]` or `language` is missing, Korean is used.
 
 > [!WARNING]
-> The unattended-access password is stored in plain text in `config.ini`. Keep the file in a location accessible only to appropriate users.
+> The unattended-access password is stored in plain text in `config.ini`. The file is kept in the current Windows user's Local AppData area.
 
+### Settings backup, restore, and reset
+
+**Back Up Settings** stores the current AnyDesk default password, language, image-analysis setting, OpenRouter model, and the OpenRouter API Key from Windows Credential Manager in a `.qacbackup` file. The **Run at Startup** registration is not included in backup, restore, or reset.
+
+**Restore Settings** validates the selected backup before replacing the active settings and OpenRouter API Key. **Reset Settings** clears application settings and the OpenRouter API Key, then asks for a new default AnyDesk password.
+
+> [!IMPORTANT]
+> `.qacbackup` files contain the AnyDesk default password and OpenRouter API Key in readable form. Do not share them and keep them in a secure location.
 
 ## Image Auto Analysis
 
@@ -148,7 +167,7 @@ The tray icon is also embedded through Go's `embed` package, so `app.ico` is not
 ## GitHub Actions
 
 - Pushes and pull requests run a Windows build check.
-- Tags matching `v*` build `QuickAnydeskConnect.exe` and attach it to a GitHub Release.
+- Tags matching `v*` build `QuickAnydeskConnect.exe` and `QuickAnydeskConnect.exe.sha256` and attach them to a GitHub Release.
 - No general build artifact is uploaded, minimizing Actions artifact storage usage.
 
 ## License
