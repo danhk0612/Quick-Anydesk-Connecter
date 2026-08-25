@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"os"
@@ -187,6 +188,7 @@ func showTrayMenu(hwnd uintptr) {
 		return
 	}
 	m := currentMessages()
+	sm := currentSettingsMessages()
 	ptr := func(v string) *uint16 { p, _ := syscall.UTF16PtrFromString(v); return p }
 	koFlags, enFlags := uintptr(MF_STRING), uintptr(MF_STRING)
 	if language == "ko" {
@@ -211,6 +213,10 @@ func showTrayMenu(hwnd uintptr) {
 	procAppendMenuW.Call(menu, MF_STRING, ID_TRAY_CHANGE_PASSWORD, uintptr(unsafe.Pointer(ptr(m.trayChangePassword))))
 	procAppendMenuW.Call(menu, MF_STRING, ID_TRAY_OPENROUTER, uintptr(unsafe.Pointer(ptr(m.trayOpenRouter))))
 	procAppendMenuW.Call(menu, MF_STRING, ID_TRAY_CHECK_UPDATE, uintptr(unsafe.Pointer(ptr(trayCheckUpdateText()))))
+	procAppendMenuW.Call(menu, MF_SEPARATOR, 0, 0)
+	procAppendMenuW.Call(menu, MF_STRING, ID_TRAY_SETTINGS_BACKUP, uintptr(unsafe.Pointer(ptr(sm.backupMenu))))
+	procAppendMenuW.Call(menu, MF_STRING, ID_TRAY_SETTINGS_RESTORE, uintptr(unsafe.Pointer(ptr(sm.restoreMenu))))
+	procAppendMenuW.Call(menu, MF_STRING, ID_TRAY_SETTINGS_RESET, uintptr(unsafe.Pointer(ptr(sm.resetMenu))))
 	procAppendMenuW.Call(menu, MF_SEPARATOR, 0, 0)
 	procAppendMenuW.Call(menu, MF_POPUP, languageMenu, uintptr(unsafe.Pointer(ptr(m.trayLanguage))))
 	procAppendMenuW.Call(menu, MF_SEPARATOR, 0, 0)
@@ -270,6 +276,18 @@ func showTrayMenu(hwnd uintptr) {
 		configureOpenRouter()
 	case ID_TRAY_CHECK_UPDATE:
 		startUpdateCheck()
+	case ID_TRAY_SETTINGS_BACKUP:
+		if err := backupSettings(); err != nil && !errors.Is(err, errCancelled) {
+			messageBox(mainWindow, fmt.Sprintf(currentSettingsMessages().backupFailed, err), currentSettingsMessages().title, MB_OK|MB_ICONERROR|MB_TOPMOST|MB_SETFOREGROUND)
+		}
+	case ID_TRAY_SETTINGS_RESTORE:
+		if err := restoreSettings(); err != nil && !errors.Is(err, errCancelled) {
+			messageBox(mainWindow, fmt.Sprintf(currentSettingsMessages().restoreFailed, err), currentSettingsMessages().title, MB_OK|MB_ICONERROR|MB_TOPMOST|MB_SETFOREGROUND)
+		}
+	case ID_TRAY_SETTINGS_RESET:
+		if err := resetSettings(); err != nil && !errors.Is(err, errCancelled) {
+			messageBox(mainWindow, fmt.Sprintf(currentSettingsMessages().resetFailed, err), currentSettingsMessages().title, MB_OK|MB_ICONERROR|MB_TOPMOST|MB_SETFOREGROUND)
+		}
 	case ID_TRAY_LANGUAGE_KO:
 		setLanguage("ko")
 	case ID_TRAY_LANGUAGE_EN:
@@ -283,31 +301,47 @@ func isStartupEnabled() (bool, error) {
 	keyPath, _ := syscall.UTF16PtrFromString(`Software\Microsoft\Windows\CurrentVersion\Run`)
 	var hKey uintptr
 	result, _, _ := procRegOpenKeyExW.Call(HKEY_CURRENT_USER, uintptr(unsafe.Pointer(keyPath)), 0, KEY_QUERY_VALUE, uintptr(unsafe.Pointer(&hKey)))
-	if result == 2 { return false, nil }
-	if result != 0 { return false, fmt.Errorf(currentMessages().errRegistryOpen, result) }
+	if result == 2 {
+		return false, nil
+	}
+	if result != 0 {
+		return false, fmt.Errorf(currentMessages().errRegistryOpen, result)
+	}
 	defer procRegCloseKey.Call(hKey)
 	valueName, _ := syscall.UTF16PtrFromString("QuickAnydeskConnect")
 	var valueType, size uint32
 	result, _, _ = procRegQueryValueExW.Call(hKey, uintptr(unsafe.Pointer(valueName)), 0, uintptr(unsafe.Pointer(&valueType)), 0, uintptr(unsafe.Pointer(&size)))
-	if result == 0 { return true, nil }
-	if result == 2 { return false, nil }
+	if result == 0 {
+		return true, nil
+	}
+	if result == 2 {
+		return false, nil
+	}
 	return false, fmt.Errorf(currentMessages().errRegistryOpen, result)
 }
 
 func registerStartup() error {
 	exePath, err := os.Executable()
-	if err != nil { return fmt.Errorf(currentMessages().errExecutablePath+": %w", err) }
+	if err != nil {
+		return fmt.Errorf(currentMessages().errExecutablePath+": %w", err)
+	}
 	keyPath, _ := syscall.UTF16PtrFromString(`Software\Microsoft\Windows\CurrentVersion\Run`)
 	var hKey uintptr
 	result, _, _ := procRegOpenKeyExW.Call(HKEY_CURRENT_USER, uintptr(unsafe.Pointer(keyPath)), 0, KEY_SET_VALUE, uintptr(unsafe.Pointer(&hKey)))
-	if result != 0 { return fmt.Errorf(currentMessages().errRegistryOpen, result) }
+	if result != 0 {
+		return fmt.Errorf(currentMessages().errRegistryOpen, result)
+	}
 	defer procRegCloseKey.Call(hKey)
 	valueName, _ := syscall.UTF16PtrFromString("QuickAnydeskConnect")
 	value := `"` + exePath + `"`
 	valueUTF16, err := syscall.UTF16FromString(value)
-	if err != nil { return fmt.Errorf(currentMessages().errPathConvert, err) }
+	if err != nil {
+		return fmt.Errorf(currentMessages().errPathConvert, err)
+	}
 	result, _, _ = procRegSetValueExW.Call(hKey, uintptr(unsafe.Pointer(valueName)), 0, REG_SZ, uintptr(unsafe.Pointer(&valueUTF16[0])), uintptr(len(valueUTF16)*2))
-	if result != 0 { return fmt.Errorf(currentMessages().errRegistrySet, result) }
+	if result != 0 {
+		return fmt.Errorf(currentMessages().errRegistrySet, result)
+	}
 	return nil
 }
 
@@ -315,11 +349,15 @@ func unregisterStartup() error {
 	keyPath, _ := syscall.UTF16PtrFromString(`Software\Microsoft\Windows\CurrentVersion\Run`)
 	var hKey uintptr
 	result, _, _ := procRegOpenKeyExW.Call(HKEY_CURRENT_USER, uintptr(unsafe.Pointer(keyPath)), 0, KEY_SET_VALUE, uintptr(unsafe.Pointer(&hKey)))
-	if result != 0 { return fmt.Errorf(currentMessages().errRegistryOpen, result) }
+	if result != 0 {
+		return fmt.Errorf(currentMessages().errRegistryOpen, result)
+	}
 	defer procRegCloseKey.Call(hKey)
 	valueName, _ := syscall.UTF16PtrFromString("QuickAnydeskConnect")
 	result, _, _ = procRegDeleteValueW.Call(hKey, uintptr(unsafe.Pointer(valueName)))
-	if result != 0 && result != 2 { return fmt.Errorf(currentMessages().errRegistryDelete, result) }
+	if result != 0 && result != 2 {
+		return fmt.Errorf(currentMessages().errRegistryDelete, result)
+	}
 	return nil
 }
 
@@ -328,12 +366,16 @@ func addTrayIcon() error {
 	trayIcon = notifyIconData{cbSize: uint32(unsafe.Sizeof(notifyIconData{})), hWnd: mainWindow, uID: 1, uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP, uCallbackMessage: WM_TRAYICON, hIcon: icon}
 	tip := syscall.StringToUTF16("Quick Anydesk Connect")
 	copy(trayIcon.szTip[:], tip)
-	if r, _, _ := procShellNotifyIconW.Call(NIM_ADD, uintptr(unsafe.Pointer(&trayIcon))); r == 0 { return fmt.Errorf("%s", currentMessages().errTrayIcon) }
+	if r, _, _ := procShellNotifyIconW.Call(NIM_ADD, uintptr(unsafe.Pointer(&trayIcon))); r == 0 {
+		return fmt.Errorf("%s", currentMessages().errTrayIcon)
+	}
 	return nil
 }
 
 func removeTrayIcon() {
-	if trayIcon.hWnd != 0 { procShellNotifyIconW.Call(NIM_DELETE, uintptr(unsafe.Pointer(&trayIcon))) }
+	if trayIcon.hWnd != 0 {
+		procShellNotifyIconW.Call(NIM_DELETE, uintptr(unsafe.Pointer(&trayIcon)))
+	}
 }
 
 func loadAppIcon() uintptr {
@@ -342,23 +384,41 @@ func loadAppIcon() uintptr {
 		bestOffset, bestSize, bestScore := -1, 0, 1<<30
 		for i := 0; i < count; i++ {
 			base := 6 + i*16
-			if base+16 > len(embeddedIcon) { break }
+			if base+16 > len(embeddedIcon) {
+				break
+			}
 			w, h := int(embeddedIcon[base]), int(embeddedIcon[base+1])
-			if w == 0 { w = 256 }; if h == 0 { h = 256 }
+			if w == 0 {
+				w = 256
+			}
+			if h == 0 {
+				h = 256
+			}
 			size := int(uint32(embeddedIcon[base+8]) | uint32(embeddedIcon[base+9])<<8 | uint32(embeddedIcon[base+10])<<16 | uint32(embeddedIcon[base+11])<<24)
 			offset := int(uint32(embeddedIcon[base+12]) | uint32(embeddedIcon[base+13])<<8 | uint32(embeddedIcon[base+14])<<16 | uint32(embeddedIcon[base+15])<<24)
-			if size <= 0 || offset < 0 || offset+size > len(embeddedIcon) { continue }
+			if size <= 0 || offset < 0 || offset+size > len(embeddedIcon) {
+				continue
+			}
 			score := absInt(w-32) + absInt(h-32)
-			if score < bestScore { bestScore, bestOffset, bestSize = score, offset, size }
+			if score < bestScore {
+				bestScore, bestOffset, bestSize = score, offset, size
+			}
 		}
 		if bestOffset >= 0 && bestSize > 0 {
 			data := embeddedIcon[bestOffset : bestOffset+bestSize]
 			icon, _, _ := procCreateIconFromResourceEx.Call(uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)), 1, 0x00030000, 32, 32, LR_DEFAULTCOLOR)
-			if icon != 0 { return icon }
+			if icon != 0 {
+				return icon
+			}
 		}
 	}
 	icon, _, _ := procLoadIconW.Call(0, 32512)
 	return icon
 }
 
-func absInt(v int) int { if v < 0 { return -v }; return v }
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
