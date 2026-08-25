@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"unsafe"
 )
 
 func main() {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	exePath, err := os.Executable()
 	if err != nil {
 		showError(currentMessages().errExecutablePath)
