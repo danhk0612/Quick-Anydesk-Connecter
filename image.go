@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+
 	"syscall"
 	"time"
 	"unsafe"
@@ -235,15 +236,7 @@ func resizeImageToMax(src image.Image, maxSide int) image.Image {
 		nh = maxSide
 		nw = maxInt(1, w*maxSide/h)
 	}
-	dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
-	for y := 0; y < nh; y++ {
-		sy := b.Min.Y + y*h/nh
-		for x := 0; x < nw; x++ {
-			sx := b.Min.X + x*w/nw
-			dst.Set(x, y, src.At(sx, sy))
-		}
-	}
-	return dst
+	return resizeImageHighQuality(src, nw, nh)
 }
 
 func maxInt(a, b int) int {
@@ -267,12 +260,59 @@ func resizeImageToFit(src image.Image, maxWidth, maxHeight int) image.Image {
 	}
 	nw := maxInt(1, int(float64(w)*scale))
 	nh := maxInt(1, int(float64(h)*scale))
-	dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
-	for y := 0; y < nh; y++ {
-		sy := b.Min.Y + y*h/nh
-		for x := 0; x < nw; x++ {
-			sx := b.Min.X + x*w/nw
-			dst.Set(x, y, src.At(sx, sy))
+	return resizeImageHighQuality(src, nw, nh)
+}
+
+func resizeImageHighQuality(src image.Image, width, height int) image.Image {
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	b := src.Bounds()
+	sw, sh := b.Dx(), b.Dy()
+	if width <= 0 || height <= 0 || sw <= 0 || sh <= 0 {
+		return dst
+	}
+
+	// Bilinear interpolation avoids the severe aliasing/moiré produced by the
+	// previous nearest-neighbor sampling when downscaling photos of displays.
+	for y := 0; y < height; y++ {
+		sy := (float64(y)+0.5)*float64(sh)/float64(height) - 0.5
+		y0 := int(sy)
+		fy := sy - float64(y0)
+		if y0 < 0 {
+			y0, fy = 0, 0
+		}
+		y1 := y0 + 1
+		if y1 >= sh {
+			y1 = sh - 1
+		}
+		for x := 0; x < width; x++ {
+			sx := (float64(x)+0.5)*float64(sw)/float64(width) - 0.5
+			x0 := int(sx)
+			fx := sx - float64(x0)
+			if x0 < 0 {
+				x0, fx = 0, 0
+			}
+			x1 := x0 + 1
+			if x1 >= sw {
+				x1 = sw - 1
+			}
+
+			r00, g00, b00, a00 := src.At(b.Min.X+x0, b.Min.Y+y0).RGBA()
+			r10, g10, b10, a10 := src.At(b.Min.X+x1, b.Min.Y+y0).RGBA()
+			r01, g01, b01, a01 := src.At(b.Min.X+x0, b.Min.Y+y1).RGBA()
+			r11, g11, b11, a11 := src.At(b.Min.X+x1, b.Min.Y+y1).RGBA()
+
+			interp := func(v00, v10, v01, v11 uint32) uint8 {
+				top := float64(v00)*(1-fx) + float64(v10)*fx
+				bottom := float64(v01)*(1-fx) + float64(v11)*fx
+				v := top*(1-fy) + bottom*fy
+				return uint8(v/257.0 + 0.5)
+			}
+			dst.SetRGBA(x, y, color.RGBA{
+				R: interp(r00, r10, r01, r11),
+				G: interp(g00, g10, g01, g11),
+				B: interp(b00, b10, b01, b11),
+				A: interp(a00, a10, a01, a11),
+			})
 		}
 	}
 	return dst
