@@ -1,0 +1,12 @@
+# Build outputs
+QuickAnydeskConnect.exe
+*.syso
+
+# Local configuration (may contain a password)
+config.ini
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
