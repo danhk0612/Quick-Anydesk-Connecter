@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Generate Windows resources
+        shell: pwsh
+        run: |
+          Remove-Item rsrc.syso, rsrc_windows_*.syso -Force -ErrorAction SilentlyContinue
+          go run github.com/tc-hib/go-winres@latest simply `
+            --icon app.ico `
+            --manifest gui `
+            --product-name "Quick Anydesk Connect" `
+            --file-description "Tray helper for fast AnyDesk remote connections" `
+            --original-filename "QuickAnydeskConnect.exe"
+
+      - name: Build
+        run: go build -trimpath -ldflags="-s -w -H windowsgui" -o QuickAnydeskConnect.exe .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: QuickAnydeskConnect.exe
+          generate_release_notes: true
