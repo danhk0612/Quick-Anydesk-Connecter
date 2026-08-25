@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	appVersion          = "1.3.0"
+	appVersion          = "1.3.1"
 	latestReleaseAPI    = "https://api.github.com/repos/danhk0612/Quick-Anydesk-Connecter/releases/latest"
 	updateExeAssetName  = "QuickAnydeskConnect.exe"
 	updateHashAssetName = "QuickAnydeskConnect.exe.sha256"
@@ -60,8 +60,8 @@ func currentUpdaterMessages() updaterMessages {
 	if language == "en" {
 		return updaterMessages{
 			title: "Quick Anydesk Connect Update",
-			latest: "You are using the latest version.\n\nCurrent version: %s",
-			available: "A new version is available.\n\nCurrent version: %s\nLatest version: %s\n\nUpdate now?",
+			latest: "You are using the latest version.\n\nCurrent version: %s\nRunning EXE: %s",
+			available: "A new version is available.\n\nCurrent version: %s\nLatest version: %s\nRunning EXE: %s\n\nUpdate now?",
 			downloading: "Downloading the update.\n\nThe app will restart automatically when it is ready.",
 			checkFailure: "Failed to check for updates.\n\n%v",
 			downloadFailure: "Failed to download or verify the update.\n\n%v",
@@ -74,8 +74,8 @@ func currentUpdaterMessages() updaterMessages {
 	}
 	return updaterMessages{
 		title: "Quick Anydesk Connect 업데이트",
-		latest: "현재 최신 버전을 사용 중입니다.\n\n현재 버전: %s",
-		available: "새 버전이 있습니다.\n\n현재 버전: %s\n최신 버전: %s\n\n지금 업데이트하시겠습니까?",
+		latest: "현재 최신 버전을 사용 중입니다.\n\n현재 버전: %s\n실행 중인 EXE: %s",
+		available: "새 버전이 있습니다.\n\n현재 버전: %s\n최신 버전: %s\n실행 중인 EXE: %s\n\n지금 업데이트하시겠습니까?",
 		downloading: "업데이트 파일을 다운로드합니다.\n\n완료되면 프로그램이 자동으로 재시작됩니다.",
 		checkFailure: "업데이트 확인에 실패했습니다.\n\n%v",
 		downloadFailure: "업데이트 다운로드 또는 검증에 실패했습니다.\n\n%v",
@@ -142,16 +142,31 @@ func handleUpdateCheckResult() {
 		showError(m.invalidRelease)
 		return
 	}
+	runningPath := currentExecutableDisplayPath()
 	if compareVersions(latest, appVersion) <= 0 {
-		messageBox(mainWindow, fmt.Sprintf(m.latest, appVersion), m.title, MB_OK|MB_TOPMOST|MB_SETFOREGROUND)
+		messageBox(mainWindow, fmt.Sprintf(m.latest, appVersion, runningPath), m.title, MB_OK|MB_TOPMOST|MB_SETFOREGROUND)
 		return
 	}
-	question := fmt.Sprintf(m.available, appVersion, latest)
+	question := fmt.Sprintf(m.available, appVersion, latest, runningPath)
 	if messageBoxResult(mainWindow, question, m.title, MB_YESNO|MB_ICONQUESTION|MB_TOPMOST|MB_SETFOREGROUND) != IDYES {
 		return
 	}
 	messageBox(mainWindow, m.downloading, m.title, MB_OK|MB_TOPMOST|MB_SETFOREGROUND)
 	startUpdateDownload(result.release)
+}
+
+func currentExecutableDisplayPath() string {
+	path, err := os.Executable()
+	if err != nil {
+		if language == "en" {
+			return "(unknown)"
+		}
+		return "(알 수 없음)"
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	return filepath.Clean(path)
 }
 
 func startUpdateDownload(release githubRelease) {
@@ -192,15 +207,23 @@ func handleUpdateDownloadResult() {
 func fetchLatestRelease() (githubRelease, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, latestReleaseAPI, nil)
-	if err != nil { return githubRelease{}, err }
+	if err != nil {
+		return githubRelease{}, err
+	}
 	req.Header.Set("User-Agent", "Quick-Anydesk-Connect/"+appVersion)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := client.Do(req)
-	if err != nil { return githubRelease{}, err }
+	if err != nil {
+		return githubRelease{}, err
+	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK { return githubRelease{}, fmt.Errorf("GitHub HTTP %d", resp.StatusCode) }
+	if resp.StatusCode != http.StatusOK {
+		return githubRelease{}, fmt.Errorf("GitHub HTTP %d", resp.StatusCode)
+	}
 	var release githubRelease
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&release); err != nil { return githubRelease{}, err }
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&release); err != nil {
+		return githubRelease{}, err
+	}
 	return release, nil
 }
 
@@ -208,38 +231,64 @@ func prepareUpdate(release githubRelease) updateDownloadResult {
 	var exeURL, hashURL string
 	for _, asset := range release.Assets {
 		switch asset.Name {
-		case updateExeAssetName: exeURL = asset.BrowserDownloadURL
-		case updateHashAssetName: hashURL = asset.BrowserDownloadURL
+		case updateExeAssetName:
+			exeURL = asset.BrowserDownloadURL
+		case updateHashAssetName:
+			hashURL = asset.BrowserDownloadURL
 		}
 	}
-	if exeURL == "" || hashURL == "" { return updateDownloadResult{err: errors.New(currentUpdaterMessages().assetMissing)} }
+	if exeURL == "" || hashURL == "" {
+		return updateDownloadResult{err: errors.New(currentUpdaterMessages().assetMissing)}
+	}
 	target, err := os.Executable()
-	if err != nil { return updateDownloadResult{err: err} }
+	if err != nil {
+		return updateDownloadResult{err: err}
+	}
 	target, err = filepath.Abs(target)
-	if err != nil { return updateDownloadResult{err: err} }
+	if err != nil {
+		return updateDownloadResult{err: err}
+	}
 	tempDir, err := os.MkdirTemp("", "QuickAnydeskConnect-update-*")
-	if err != nil { return updateDownloadResult{err: err} }
+	if err != nil {
+		return updateDownloadResult{err: err}
+	}
 	newExe := filepath.Join(tempDir, "QuickAnydeskConnect.new.exe")
 	hashFile := filepath.Join(tempDir, updateHashAssetName)
 	updater := filepath.Join(tempDir, "QuickAnydeskConnect.updater.exe")
-	if err := downloadFile(exeURL, newExe); err != nil { return updateDownloadResult{err: err} }
-	if err := downloadFile(hashURL, hashFile); err != nil { return updateDownloadResult{err: err} }
-	if err := verifySHA256File(newExe, hashFile); err != nil { return updateDownloadResult{err: err} }
-	if err := copyFile(target, updater); err != nil { return updateDownloadResult{err: err} }
+	if err := downloadFile(exeURL, newExe); err != nil {
+		return updateDownloadResult{err: err}
+	}
+	if err := downloadFile(hashURL, hashFile); err != nil {
+		return updateDownloadResult{err: err}
+	}
+	if err := verifySHA256File(newExe, hashFile); err != nil {
+		return updateDownloadResult{err: err}
+	}
+	if err := copyFile(target, updater); err != nil {
+		return updateDownloadResult{err: err}
+	}
 	return updateDownloadResult{updaterPath: updater, newExePath: newExe, targetPath: target}
 }
 
 func downloadFile(url, path string) error {
 	client := &http.Client{Timeout: 90 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	req.Header.Set("User-Agent", "Quick-Anydesk-Connect/"+appVersion)
 	resp, err := client.Do(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK { return fmt.Errorf("download HTTP %d", resp.StatusCode) }
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download HTTP %d", resp.StatusCode)
+	}
 	f, err := os.Create(path)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer f.Close()
 	_, err = io.Copy(f, io.LimitReader(resp.Body, 100<<20))
 	return err
@@ -247,24 +296,40 @@ func downloadFile(url, path string) error {
 
 func verifySHA256File(exePath, hashPath string) error {
 	f, err := os.Open(hashPath)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	scanner := bufio.NewScanner(f)
 	var expected string
 	if scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
-		if len(fields) > 0 { expected = strings.ToLower(strings.TrimSpace(fields[0])) }
+		if len(fields) > 0 {
+			expected = strings.ToLower(strings.TrimSpace(fields[0]))
+		}
 	}
 	f.Close()
-	if err := scanner.Err(); err != nil { return err }
-	if len(expected) != 64 { return errors.New(currentUpdaterMessages().hashInvalid) }
-	if _, err := hex.DecodeString(expected); err != nil { return errors.New(currentUpdaterMessages().hashInvalid) }
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if len(expected) != 64 {
+		return errors.New(currentUpdaterMessages().hashInvalid)
+	}
+	if _, err := hex.DecodeString(expected); err != nil {
+		return errors.New(currentUpdaterMessages().hashInvalid)
+	}
 	exe, err := os.Open(exePath)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	h := sha256.New()
 	_, err = io.Copy(h, exe)
 	exe.Close()
-	if err != nil { return err }
-	if hex.EncodeToString(h.Sum(nil)) != expected { return errors.New(currentUpdaterMessages().hashMismatch) }
+	if err != nil {
+		return err
+	}
+	if hex.EncodeToString(h.Sum(nil)) != expected {
+		return errors.New(currentUpdaterMessages().hashMismatch)
+	}
 	return nil
 }
 
@@ -284,7 +349,9 @@ func runApplyUpdate(targetPath, newExePath string) error {
 			return err
 		}
 		_ = os.Remove(backup)
-		if err := exec.Command(targetPath).Start(); err != nil { return err }
+		if err := exec.Command(targetPath).Start(); err != nil {
+			return err
+		}
 		return nil
 	}
 	return fmt.Errorf("could not replace executable: %w", lastErr)
@@ -292,21 +359,31 @@ func runApplyUpdate(targetPath, newExePath string) error {
 
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer in.Close()
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	_, copyErr := io.Copy(out, in)
 	closeErr := out.Close()
-	if copyErr != nil { return copyErr }
+	if copyErr != nil {
+		return copyErr
+	}
 	return closeErr
 }
 
 func compareVersions(a, b string) int {
 	pa, pb := parseVersion(a), parseVersion(b)
 	for i := 0; i < 3; i++ {
-		if pa[i] < pb[i] { return -1 }
-		if pa[i] > pb[i] { return 1 }
+		if pa[i] < pb[i] {
+			return -1
+		}
+		if pa[i] > pb[i] {
+			return 1
+		}
 	}
 	return 0
 }
@@ -316,6 +393,8 @@ func parseVersion(v string) [3]int {
 	v = strings.SplitN(v, "-", 2)[0]
 	parts := strings.Split(v, ".")
 	var out [3]int
-	for i := 0; i < len(parts) && i < 3; i++ { out[i], _ = strconv.Atoi(parts[i]) }
+	for i := 0; i < len(parts) && i < 3; i++ {
+		out[i], _ = strconv.Atoi(parts[i])
+	}
 	return out
 }
