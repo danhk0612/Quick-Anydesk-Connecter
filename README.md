@@ -75,6 +75,9 @@ password=YOUR_PASSWORD
 [general]
 language=ko
 image_analysis=false
+
+[openrouter]
+model=google/gemma-4-26b-a4b-it:free
 ```
 
 Supported language values:
@@ -87,15 +90,34 @@ If `[general]` or `language` is missing, Korean is used.
 > [!WARNING]
 > The unattended-access password is stored in plain text in `config.ini`. Keep the file in a location accessible only to appropriate users.
 
+
 ## Image Auto Analysis
 
 Image Auto Analysis is disabled by default and can be enabled from the tray menu.
 
 On first activation, enter an OpenRouter API Key. The key is validated with the non-inference `GET /api/v1/key` endpoint and stored in Windows Credential Manager instead of `config.ini`.
 
-Clipboard images are **not** sent automatically. The application first displays the copied image with **Analyze / Ignore** controls. The image is sent to OpenRouter only after you explicitly choose **Analyze**. The configured model is `google/gemini-2.5-flash-lite`.
+Clipboard images are **not** sent automatically. The application first displays the copied image with **Analyze / Ignore** controls. The image is sent to OpenRouter only after you explicitly choose **Analyze**.
 
-OpenRouter is a separate service and API usage may incur charges.
+In **OpenRouter Settings**, you can enter both the API Key and the model ID directly. The dialog also includes a button that opens the OpenRouter API Keys page. The default model is `google/gemma-4-26b-a4b-it:free`, but the model field is not restricted to a predefined list. Any OpenRouter model that accepts image input can be entered.
+
+### Suggested image-capable models
+
+The following are practical examples for reading a short AnyDesk address from a screenshot. Model availability, pricing, rate limits, and IDs can change, so verify the current model page on OpenRouter before relying on one.
+
+| Model ID | Cost | Notes |
+| --- | --- | --- |
+| `google/gemma-4-26b-a4b-it:free` | Free | Default. Multimodal and inexpensive to try, but free upstream providers may be temporarily rate-limited. |
+| `google/gemma-4-31b-it:free` | Free | Larger free multimodal alternative; useful when the default free endpoint is unavailable. |
+| `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | Free | General multimodal model that accepts image input. |
+| `google/gemini-2.5-flash-lite` | Paid, low cost | Stable fallback observed to work well for this simple number-extraction task. |
+
+If a free model returns an upstream provider rate-limit error, wait and retry or change the model in **OpenRouter Settings**. The program distinguishes this from a general OpenRouter/account rate limit and shows the provider response when available.
+
+> [!IMPORTANT]
+> Approved clipboard images are sent to OpenRouter and the selected model provider. Free model providers may apply their own logging, retention, availability, and rate-limit policies. Avoid analyzing sensitive images unless you are comfortable sending them to the configured external service.
+
+OpenRouter is a separate service and API usage may incur charges. Create or manage an API key at <https://openrouter.ai/settings/keys>.
 
 ## AnyDesk address detection
 
