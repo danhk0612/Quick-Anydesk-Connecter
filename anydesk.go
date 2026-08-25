@@ -135,8 +135,7 @@ func connect(anyDeskPath, target, p string) error {
 }
 
 func readClipboardText() (string, error) {
-	r, _, _ := procOpenClipboard.Call(0)
-	if r == 0 {
+	if !openClipboardWithRetry() {
 		return "", fmt.Errorf("clipboard unavailable")
 	}
 	defer procCloseClipboard.Call()
