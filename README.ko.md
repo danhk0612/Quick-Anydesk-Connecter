@@ -15,6 +15,9 @@ Quick Anydesk Connect는 반복적인 AnyDesk 원격 지원 접속 절차를 간
 - 설정된 무인 접속 기본 암호 자동 제출
 - AnyDesk가 완전히 종료된 경우 먼저 AnyDesk를 시작한 뒤 초기화 후 접속
 - Windows 시작 프로그램 등록/제거
+- 클립보드 이미지 미리보기 후 사용자 승인 시 OpenRouter Vision으로 AnyDesk 번호 분석
+- OpenRouter API Key는 Windows Credential Manager에 저장
+- 상황별 OpenRouter/네트워크/분석 오류 안내
 - 한국어/영어 UI
 - 트레이 메뉴에서 재시작 없이 언어 변경
 - 기본 언어 한국어
@@ -51,6 +54,9 @@ C:\Program Files\AnyDesk\AnyDesk.exe
 ### 트레이 메뉴
 
 - 원격 접속
+- 이미지 자동 분석
+- 기본 암호 수정
+- OpenRouter 설정
 - 시작 프로그램 등록
 - 시작 프로그램 제거
 - 언어
@@ -68,6 +74,7 @@ password=YOUR_PASSWORD
 
 [general]
 language=ko
+image_analysis=false
 ```
 
 지원 언어:
@@ -79,6 +86,16 @@ language=ko
 
 > [!WARNING]
 > 무인 접속 기본 암호는 `config.ini`에 평문으로 저장됩니다. 적절한 사용자만 접근할 수 있는 위치에 보관하십시오.
+
+## 이미지 자동 분석
+
+이미지 자동 분석은 기본적으로 꺼져 있습니다. 트레이 메뉴에서 활성화할 수 있습니다.
+
+최초 활성화 시 OpenRouter API Key를 입력하면 비용이 발생하지 않는 `GET /api/v1/key` 요청으로 키를 검증한 뒤 Windows Credential Manager에 저장합니다. API Key는 `config.ini`에 저장하지 않습니다.
+
+이미지가 클립보드에 복사되면 곧바로 외부로 전송하지 않습니다. 먼저 이미지 미리보기와 **분석 / 무시** 버튼을 표시하며, 사용자가 **분석**을 선택한 경우에만 이미지가 OpenRouter로 전송됩니다. 분석 모델은 `google/gemini-2.5-flash-lite`입니다.
+
+OpenRouter는 별도 서비스이며 사용량에 따라 API 비용이 발생할 수 있습니다.
 
 ## AnyDesk 번호 판별
 

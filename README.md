@@ -15,6 +15,9 @@ It watches the clipboard for a 9- or 10-digit AnyDesk address, asks for confirma
 - Automatically submits a configured unattended-access password
 - Starts AnyDesk first when AnyDesk has been fully exited, then connects after initialization
 - Add/remove the launcher from Windows startup
+- Clipboard image preview with explicit approval before OpenRouter Vision analysis
+- OpenRouter API Key stored in Windows Credential Manager
+- Context-specific OpenRouter, network, and analysis errors
 - Korean and English UI
 - Language switching from the tray menu without restarting
 - Korean is the default language
@@ -51,6 +54,9 @@ You can also open a manual connection dialog by:
 ### Tray menu
 
 - Remote Connection
+- Image Auto Analysis
+- Change Default Password
+- OpenRouter Settings
 - Add to Startup
 - Remove from Startup
 - Language
@@ -68,6 +74,7 @@ password=YOUR_PASSWORD
 
 [general]
 language=ko
+image_analysis=false
 ```
 
 Supported language values:
@@ -79,6 +86,16 @@ If `[general]` or `language` is missing, Korean is used.
 
 > [!WARNING]
 > The unattended-access password is stored in plain text in `config.ini`. Keep the file in a location accessible only to appropriate users.
+
+## Image Auto Analysis
+
+Image Auto Analysis is disabled by default and can be enabled from the tray menu.
+
+On first activation, enter an OpenRouter API Key. The key is validated with the non-inference `GET /api/v1/key` endpoint and stored in Windows Credential Manager instead of `config.ini`.
+
+Clipboard images are **not** sent automatically. The application first displays the copied image with **Analyze / Ignore** controls. The image is sent to OpenRouter only after you explicitly choose **Analyze**. The configured model is `google/gemini-2.5-flash-lite`.
+
+OpenRouter is a separate service and API usage may incur charges.
 
 ## AnyDesk address detection
 

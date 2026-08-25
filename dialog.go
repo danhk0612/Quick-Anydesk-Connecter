@@ -30,6 +30,16 @@ func askPassword() (string, error) {
 	)
 }
 
+func askNewPassword() (string, error) {
+	m := currentMessages()
+	return showInputDialog(modePassword, m.changePasswordTitle, m.setupPassword, m.changePasswordDescription, true, m.saveButton)
+}
+
+func askOpenRouterKey() (string, error) {
+	m := currentMessages()
+	return showInputDialog(modeOpenRouterKey, m.openRouterTitle, m.openRouterKeyLabel, m.openRouterKeyDescription, true, m.verifyButton)
+}
+
 func showInputDialog(mode dialogMode, title, fieldLabel, description string, passwordField bool, okText string) (string, error) {
 	if dialogActive {
 		return "", errCancelled
@@ -51,7 +61,7 @@ func showInputDialog(mode dialogMode, title, fieldLabel, description string, pas
 	procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 
 	width := int32(460)
-	height := int32(210)
+	height := int32(225)
 
 	screenW, _, _ := procGetSystemMetrics.Call(0)
 	screenH, _, _ := procGetSystemMetrics.Call(1)
@@ -78,13 +88,13 @@ func showInputDialog(mode dialogMode, title, fieldLabel, description string, pas
 
 	desc, _, _ := procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(staticClass)), uintptr(unsafe.Pointer(descW)),
-		WS_CHILD|WS_VISIBLE, 24, 22, 400, 24, dialogWindow, 0, hInstance, 0,
+		WS_CHILD|WS_VISIBLE, 24, 20, 400, 38, dialogWindow, 0, hInstance, 0,
 	)
 	setFont(desc, font)
 
 	label, _, _ := procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(staticClass)), uintptr(unsafe.Pointer(labelW)),
-		WS_CHILD|WS_VISIBLE, 24, 60, 400, 20, dialogWindow, 0, hInstance, 0,
+		WS_CHILD|WS_VISIBLE, 24, 66, 400, 20, dialogWindow, 0, hInstance, 0,
 	)
 	setFont(label, font)
 
@@ -97,7 +107,7 @@ func showInputDialog(mode dialogMode, title, fieldLabel, description string, pas
 	empty, _ := syscall.UTF16PtrFromString("")
 	dialogEdit, _, _ = procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(editClass)), uintptr(unsafe.Pointer(empty)),
-		editStyle, 24, 84, 400, 28, dialogWindow, ID_EDIT, hInstance, 0,
+		editStyle, 24, 90, 400, 28, dialogWindow, ID_EDIT, hInstance, 0,
 	)
 	setFont(dialogEdit, font)
 
@@ -108,14 +118,14 @@ func showInputDialog(mode dialogMode, title, fieldLabel, description string, pas
 	okBtn, _, _ := procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(buttonClass)), uintptr(unsafe.Pointer(okW)),
 		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON,
-		254, 128, 80, 30, dialogWindow, ID_OK, hInstance, 0,
+		254, 140, 80, 30, dialogWindow, ID_OK, hInstance, 0,
 	)
 	setFont(okBtn, font)
 
 	cancelBtn, _, _ := procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(buttonClass)), uintptr(unsafe.Pointer(cancelW)),
 		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
-		344, 128, 80, 30, dialogWindow, ID_CANCEL, hInstance, 0,
+		344, 140, 80, 30, dialogWindow, ID_CANCEL, hInstance, 0,
 	)
 	setFont(cancelBtn, font)
 
@@ -221,11 +231,16 @@ func submitDialog() {
 		}
 		dialogValue = value
 
-	case modePassword:
+	case modePassword, modeOpenRouterKey:
 		if raw == "" {
 			messageBox(
 				dialogWindow,
-				currentMessages().emptyPassword,
+				func() string {
+					if dialogModeNow == modeOpenRouterKey {
+						return currentMessages().errOpenRouterKeyEmpty
+					}
+					return currentMessages().emptyPassword
+				}(),
 				currentMessages().inputCheckTitle,
 				MB_OK|MB_ICONERROR|MB_TOPMOST|MB_SETFOREGROUND,
 			)

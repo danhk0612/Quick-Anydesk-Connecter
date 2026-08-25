@@ -3,28 +3,32 @@
 package main
 
 import (
+	_ "embed"
 	"errors"
 	"regexp"
 	"syscall"
-	_ "embed"
 )
 
 const (
+	CF_BITMAP      = 2
+	CF_DIB         = 8
 	CF_UNICODETEXT = 13
+	CF_DIBV5       = 17
 
-	WM_DESTROY         = 0x0002
-	WM_CLOSE           = 0x0010
-	WM_COMMAND         = 0x0111
-	WM_KEYDOWN         = 0x0100
-	WM_SETFONT         = 0x0030
-	WM_CTLCOLOREDIT    = 0x0133
-	WM_CTLCOLORSTATIC  = 0x0138
-	WM_RBUTTONUP       = 0x0205
-	WM_LBUTTONDBLCLK   = 0x0203
-	WM_CONTEXTMENU     = 0x007B
-	WM_CLIPBOARDUPDATE = 0x031D
-	WM_APP             = 0x8000
-	WM_TRAYICON        = WM_APP + 1
+	WM_DESTROY               = 0x0002
+	WM_CLOSE                 = 0x0010
+	WM_COMMAND               = 0x0111
+	WM_KEYDOWN               = 0x0100
+	WM_SETFONT               = 0x0030
+	WM_CTLCOLOREDIT          = 0x0133
+	WM_CTLCOLORSTATIC        = 0x0138
+	WM_RBUTTONUP             = 0x0205
+	WM_LBUTTONDBLCLK         = 0x0203
+	WM_CONTEXTMENU           = 0x007B
+	WM_CLIPBOARDUPDATE       = 0x031D
+	WM_APP                   = 0x8000
+	WM_TRAYICON              = WM_APP + 1
+	WM_IMAGE_ANALYSIS_RESULT = WM_APP + 2
 
 	VK_RETURN = 0x0D
 	VK_ESCAPE = 0x1B
@@ -42,16 +46,23 @@ const (
 
 	BS_PUSHBUTTON    = 0x00000000
 	BS_DEFPUSHBUTTON = 0x00000001
+	SS_BITMAP        = 0x0000000E
+	STM_SETIMAGE     = 0x0172
+	IMAGE_BITMAP     = 0
+	DIB_RGB_COLORS   = 0
 
 	SW_SHOW = 5
 	SW_HIDE = 0
 
 	MB_OK            = 0x00000000
+	MB_OKCANCEL      = 0x00000001
 	MB_YESNO         = 0x00000004
 	MB_ICONERROR     = 0x00000010
 	MB_ICONQUESTION  = 0x00000020
 	MB_SETFOREGROUND = 0x00010000
 	MB_TOPMOST       = 0x00040000
+	IDOK             = 1
+	IDCANCEL         = 2
 	IDYES            = 6
 
 	DEFAULT_GUI_FONT = 17
@@ -72,24 +83,46 @@ const (
 	TPM_RIGHTBUTTON = 0x0002
 	TPM_RETURNCMD   = 0x0100
 
-	ID_EDIT                = 1001
-	ID_OK                  = 1002
-	ID_CANCEL              = 1003
-	ID_TRAY_CONNECT        = 2001
-	ID_TRAY_STARTUP_ADD    = 2002
-	ID_TRAY_STARTUP_REMOVE = 2003
-	ID_TRAY_LANGUAGE_KO    = 2004
-	ID_TRAY_LANGUAGE_EN    = 2005
-	ID_TRAY_EXIT           = 2006
+	ID_EDIT                 = 1001
+	ID_OK                   = 1002
+	ID_CANCEL               = 1003
+	ID_ANALYZE              = 1010
+	ID_IGNORE               = 1011
+	ID_TRAY_CONNECT         = 2001
+	ID_TRAY_IMAGE_ANALYSIS  = 2002
+	ID_TRAY_CHANGE_PASSWORD = 2003
+	ID_TRAY_OPENROUTER      = 2004
+	ID_TRAY_STARTUP_ADD     = 2005
+	ID_TRAY_STARTUP_REMOVE  = 2006
+	ID_TRAY_LANGUAGE_KO     = 2007
+	ID_TRAY_LANGUAGE_EN     = 2008
+	ID_TRAY_EXIT            = 2009
 
 	LR_DEFAULTCOLOR = 0x0000
 
 	HKEY_CURRENT_USER = 0x80000001
 	KEY_SET_VALUE     = 0x0002
 	REG_SZ            = 1
+
+	CRED_TYPE_GENERIC          = 1
+	CRED_PERSIST_LOCAL_MACHINE = 2
 )
 
-var errCancelled = errors.New("cancelled")
+var (
+	errCancelled                  = errors.New("cancelled")
+	errOpenRouterUnauthorized     = errors.New("openrouter unauthorized")
+	errOpenRouterForbidden        = errors.New("openrouter forbidden")
+	errOpenRouterRateLimit        = errors.New("openrouter rate limit")
+	errOpenRouterServer           = errors.New("openrouter server error")
+	errOpenRouterTimeout          = errors.New("openrouter timeout")
+	errOpenRouterNetwork          = errors.New("openrouter network error")
+	errOpenRouterPayment          = errors.New("openrouter payment required")
+	errOpenRouterInvalidResponse  = errors.New("openrouter invalid response")
+	errAnyDeskNotFound            = errors.New("anydesk address not found")
+	errMultipleAnyDeskIDs         = errors.New("multiple anydesk addresses")
+	errOpenRouterBadRequest       = errors.New("openrouter bad request")
+	errOpenRouterModelUnavailable = errors.New("openrouter model unavailable")
+)
 
 var (
 	user32   = syscall.NewLazyDLL("user32.dll")
@@ -101,6 +134,10 @@ var (
 	procOpenClipboard                 = user32.NewProc("OpenClipboard")
 	procCloseClipboard                = user32.NewProc("CloseClipboard")
 	procGetClipboardData              = user32.NewProc("GetClipboardData")
+	procIsClipboardFormatAvailable    = user32.NewProc("IsClipboardFormatAvailable")
+	procGetDC                         = user32.NewProc("GetDC")
+	procReleaseDC                     = user32.NewProc("ReleaseDC")
+	procPostMessageW                  = user32.NewProc("PostMessageW")
 	procRegisterClassExW              = user32.NewProc("RegisterClassExW")
 	procCreateWindowExW               = user32.NewProc("CreateWindowExW")
 	procDefWindowProcW                = user32.NewProc("DefWindowProcW")
@@ -132,15 +169,23 @@ var (
 	procGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
 	procGlobalLock       = kernel32.NewProc("GlobalLock")
 	procGlobalUnlock     = kernel32.NewProc("GlobalUnlock")
+	procGlobalSize       = kernel32.NewProc("GlobalSize")
 
 	procGetStockObject   = gdi32.NewProc("GetStockObject")
 	procSetBkMode        = gdi32.NewProc("SetBkMode")
+	procCreateDIBSection = gdi32.NewProc("CreateDIBSection")
+	procGetDIBits        = gdi32.NewProc("GetDIBits")
+	procGetObjectW       = gdi32.NewProc("GetObjectW")
+	procDeleteObject     = gdi32.NewProc("DeleteObject")
 	procShellNotifyIconW = shell32.NewProc("Shell_NotifyIconW")
 
 	procRegOpenKeyExW   = advapi32.NewProc("RegOpenKeyExW")
 	procRegSetValueExW  = advapi32.NewProc("RegSetValueExW")
 	procRegDeleteValueW = advapi32.NewProc("RegDeleteValueW")
 	procRegCloseKey     = advapi32.NewProc("RegCloseKey")
+	procCredWriteW      = advapi32.NewProc("CredWriteW")
+	procCredReadW       = advapi32.NewProc("CredReadW")
+	procCredFree        = advapi32.NewProc("CredFree")
 )
 
 type wndClassEx struct {
@@ -190,20 +235,75 @@ type notifyIconData struct {
 	hBalloonIcon     uintptr
 }
 
+type bitmapInfoHeader struct {
+	biSize          uint32
+	biWidth         int32
+	biHeight        int32
+	biPlanes        uint16
+	biBitCount      uint16
+	biCompression   uint32
+	biSizeImage     uint32
+	biXPelsPerMeter int32
+	biYPelsPerMeter int32
+	biClrUsed       uint32
+	biClrImportant  uint32
+}
+
+type rgbQuad struct{ blue, green, red, reserved byte }
+type bitmapInfo struct {
+	bmiHeader bitmapInfoHeader
+	bmiColors [1]rgbQuad
+}
+type bitmap struct {
+	bmType       int32
+	bmWidth      int32
+	bmHeight     int32
+	bmWidthBytes int32
+	bmPlanes     uint16
+	bmBitsPixel  uint16
+	bmBits       uintptr
+}
+
+type filetime struct {
+	dwLowDateTime  uint32
+	dwHighDateTime uint32
+}
+
+type credential struct {
+	Flags              uint32
+	Type               uint32
+	TargetName         *uint16
+	Comment            *uint16
+	LastWritten        filetime
+	CredentialBlobSize uint32
+	CredentialBlob     *byte
+	Persist            uint32
+	AttributeCount     uint32
+	Attributes         uintptr
+	TargetAlias        *uint16
+	UserName           *uint16
+}
+
 type dialogMode int
 
 const (
 	modeAnyDeskID dialogMode = iota
 	modePassword
+	modeOpenRouterKey
 )
 
 var (
-	mainWindow uintptr
-	trayIcon   notifyIconData
-	exeDir     string
-	configPath string
-	password   string
-	language   = "ko"
+	mainWindow             uintptr
+	trayIcon               notifyIconData
+	exeDir                 string
+	configPath             string
+	password               string
+	language               = "ko"
+	imageAnalysisEnabled   bool
+	imageAnalysisBusy      bool
+	lastClipboardImageHash [32]byte
+	analysisResult         string
+	analysisErr            error
 
 	dialogWindow  uintptr
 	dialogEdit    uintptr
