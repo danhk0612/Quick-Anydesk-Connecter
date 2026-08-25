@@ -38,6 +38,10 @@ func main() {
 	}
 	exeDir = filepath.Dir(exePath)
 
+	// Remove an old Run entry that points at a different copy of the EXE.
+	// The tray toggle will then appear OFF; enabling it registers this copy.
+	_ = removeStaleStartupRegistration()
+
 	dialogBgBrush, _, _ = procGetSysColorBrush.Call(COLOR_BTNFACE)
 
 	configPath, err = resolveConfigPath(exeDir)
