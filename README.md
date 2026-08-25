@@ -97,7 +97,7 @@ Image Auto Analysis is disabled by default and can be enabled from the tray menu
 
 On first activation, enter an OpenRouter API Key. The key is validated with the non-inference `GET /api/v1/key` endpoint and stored in Windows Credential Manager instead of `config.ini`.
 
-Clipboard images are **not** sent automatically. The application first displays the copied image with **Analyze / Ignore** controls. The image is sent to OpenRouter only after you explicitly choose **Analyze**.
+Clipboard images are **not** sent automatically. The application first displays the copied image with **Analyze / Ignore** controls. The image is sent to OpenRouter only after you explicitly choose **Analyze**. The preview uses high-quality interpolation when scaled to fit the window. For analysis, only oversized images are downscaled while preserving aspect ratio, with the longest side capped at 1600 px; smaller images are never enlarged.
 
 In **OpenRouter Settings**, you can enter both the API Key and the model ID directly. The dialog also includes a button that opens the OpenRouter API Keys page. The default model is `google/gemma-4-26b-a4b-it:free`, but the model field is not restricted to a predefined list. Any OpenRouter model that accepts image input can be entered.
 
