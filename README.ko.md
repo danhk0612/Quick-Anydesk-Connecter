@@ -14,15 +14,17 @@ Quick Anydesk Connect는 반복적인 AnyDesk 원격 지원 접속 절차를 간
 - 트레이 메뉴 또는 트레이 아이콘 더블클릭으로 직접 번호 입력
 - 설정된 무인 접속 기본 암호 자동 제출
 - AnyDesk가 완전히 종료된 경우 먼저 AnyDesk를 시작한 뒤 초기화 후 접속
-- Windows 시작 프로그램 등록/제거
+- Windows 시작 프로그램 체크 토글
+- GitHub Releases 기반 수동 업데이트 확인 및 SHA-256 검증 후 자동 교체/재시작
 - 클립보드 이미지 미리보기 후 사용자 승인 시 OpenRouter Vision으로 AnyDesk 번호 분석
 - OpenRouter API Key는 Windows Credential Manager에 저장
+- 설정 초기화 / 백업 / 복원
 - 상황별 OpenRouter/네트워크/분석 오류 안내
 - 한국어/영어 UI
 - 트레이 메뉴에서 재시작 없이 언어 변경
 - 기본 언어 한국어
 - 실행 파일 및 트레이 아이콘 내장
-- EXE 단독 배포 가능, `config.ini`가 없으면 최초 실행 시 생성
+- EXE 단독 배포 가능, 사용자 설정은 `%LOCALAPPDATA%` 아래에 저장
 
 ## 요구사항
 
@@ -55,10 +57,13 @@ C:\Program Files\AnyDesk\AnyDesk.exe
 
 - 원격 접속
 - 이미지 자동 분석
+- 시작 프로그램
 - 기본 암호 수정
 - OpenRouter 설정
-- 시작 프로그램 등록
-- 시작 프로그램 제거
+- 업데이트 확인
+- 설정 백업
+- 설정 복원
+- 설정 초기화
 - 언어
   - 한국어
   - English
@@ -66,7 +71,13 @@ C:\Program Files\AnyDesk\AnyDesk.exe
 
 ## 설정 파일
 
-`config.ini`는 실행 파일과 같은 폴더에 저장됩니다.
+`config.ini`는 실행 파일 옆이 아니라 현재 Windows 사용자의 다음 경로에 저장됩니다.
+
+```text
+%LOCALAPPDATA%\QuickAnydeskConnect\config.ini
+```
+
+이전 버전에서 EXE 옆에 사용하던 유효한 `config.ini`가 있고 새 사용자 경로에 설정이 아직 없으면 최초 실행 시 한 번 자동으로 마이그레이션합니다.
 
 ```ini
 [anydesk]
@@ -88,8 +99,16 @@ model=google/gemma-4-26b-a4b-it:free
 `[general]` 또는 `language`가 없으면 한국어를 사용합니다.
 
 > [!WARNING]
-> 무인 접속 기본 암호는 `config.ini`에 평문으로 저장됩니다. 적절한 사용자만 접근할 수 있는 위치에 보관하십시오.
+> 무인 접속 기본 암호는 `config.ini`에 평문으로 저장됩니다. 파일은 현재 Windows 사용자의 Local AppData 영역에 저장됩니다.
 
+### 설정 백업 / 복원 / 초기화
+
+**설정 백업**은 현재 AnyDesk 기본 암호, 언어, 이미지 분석 설정, OpenRouter 모델 및 Windows Credential Manager에 저장된 OpenRouter API Key를 `.qacbackup` 파일로 저장합니다. **시작 프로그램** 등록 상태는 백업/복원/초기화 대상에 포함하지 않습니다.
+
+**설정 복원**은 백업 파일을 먼저 검증한 뒤 현재 설정과 OpenRouter API Key를 교체합니다. **설정 초기화**는 앱 설정과 OpenRouter API Key를 초기화하고 새 기본 AnyDesk 암호를 다시 입력하도록 합니다.
+
+> [!IMPORTANT]
+> `.qacbackup` 파일에는 AnyDesk 기본 암호와 OpenRouter API Key가 읽을 수 있는 형태로 포함됩니다. 다른 사람에게 공유하지 말고 안전한 위치에 보관하십시오.
 
 ## 이미지 자동 분석
 
@@ -148,7 +167,7 @@ Windows에서 `build.bat`을 실행합니다.
 ## GitHub Actions
 
 - 일반 push / pull request에서는 Windows 빌드 검증만 수행합니다.
-- `v*` 형식 태그를 만들면 `QuickAnydeskConnect.exe`를 빌드해 GitHub Release에 첨부합니다.
+- `v*` 형식 태그를 만들면 `QuickAnydeskConnect.exe`와 `QuickAnydeskConnect.exe.sha256`을 GitHub Release에 첨부합니다.
 - 일반 빌드 artifact는 업로드하지 않아 Actions 저장공간 사용을 최소화합니다.
 
 ## 라이선스
