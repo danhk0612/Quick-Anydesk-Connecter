@@ -11,6 +11,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 4 && os.Args[1] == "--apply-update" {
+		if err := runApplyUpdate(os.Args[2], os.Args[3]); err != nil {
+			showError(fmt.Sprintf("업데이트 적용에 실패했습니다.\n\n%v", err))
+		}
+		return
+	}
+
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
