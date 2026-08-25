@@ -21,12 +21,26 @@ func main() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	instanceHandle, acquired, err := acquireSingleInstance()
+	if err != nil {
+		showError(err.Error())
+		return
+	}
+	if !acquired {
+		return
+	}
+	defer releaseSingleInstance(instanceHandle)
+
 	exePath, err := os.Executable()
 	if err != nil {
 		showError(currentMessages().errExecutablePath)
 		return
 	}
 	exeDir = filepath.Dir(exePath)
+
+	// Remove an old Run entry that points at a different copy of the EXE.
+	// The tray toggle will then appear OFF; enabling it registers this copy.
+	_ = removeStaleStartupRegistration()
 
 	dialogBgBrush, _, _ = procGetSysColorBrush.Call(COLOR_BTNFACE)
 
