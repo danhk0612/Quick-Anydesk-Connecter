@@ -51,8 +51,9 @@ const (
 	IMAGE_BITMAP     = 0
 	DIB_RGB_COLORS   = 0
 
-	SW_SHOW = 5
-	SW_HIDE = 0
+	SW_SHOW       = 5
+	SW_HIDE       = 0
+	SW_SHOWNORMAL = 1
 
 	MB_OK            = 0x00000000
 	MB_OKCANCEL      = 0x00000001
@@ -86,6 +87,8 @@ const (
 	ID_EDIT                 = 1001
 	ID_OK                   = 1002
 	ID_CANCEL               = 1003
+	ID_MODEL_EDIT           = 1004
+	ID_OPENROUTER_KEYS_LINK = 1005
 	ID_ANALYZE              = 1010
 	ID_IGNORE               = 1011
 	ID_TRAY_CONNECT         = 2001
@@ -109,19 +112,20 @@ const (
 )
 
 var (
-	errCancelled                  = errors.New("cancelled")
-	errOpenRouterUnauthorized     = errors.New("openrouter unauthorized")
-	errOpenRouterForbidden        = errors.New("openrouter forbidden")
-	errOpenRouterRateLimit        = errors.New("openrouter rate limit")
-	errOpenRouterServer           = errors.New("openrouter server error")
-	errOpenRouterTimeout          = errors.New("openrouter timeout")
-	errOpenRouterNetwork          = errors.New("openrouter network error")
-	errOpenRouterPayment          = errors.New("openrouter payment required")
-	errOpenRouterInvalidResponse  = errors.New("openrouter invalid response")
-	errAnyDeskNotFound            = errors.New("anydesk address not found")
-	errMultipleAnyDeskIDs         = errors.New("multiple anydesk addresses")
-	errOpenRouterBadRequest       = errors.New("openrouter bad request")
-	errOpenRouterModelUnavailable = errors.New("openrouter model unavailable")
+	errCancelled                   = errors.New("cancelled")
+	errOpenRouterUnauthorized      = errors.New("openrouter unauthorized")
+	errOpenRouterForbidden         = errors.New("openrouter forbidden")
+	errOpenRouterRateLimit         = errors.New("openrouter rate limit")
+	errOpenRouterUpstreamRateLimit = errors.New("openrouter upstream provider rate limit")
+	errOpenRouterServer            = errors.New("openrouter server error")
+	errOpenRouterTimeout           = errors.New("openrouter timeout")
+	errOpenRouterNetwork           = errors.New("openrouter network error")
+	errOpenRouterPayment           = errors.New("openrouter payment required")
+	errOpenRouterInvalidResponse   = errors.New("openrouter invalid response")
+	errAnyDeskNotFound             = errors.New("anydesk address not found")
+	errMultipleAnyDeskIDs          = errors.New("multiple anydesk addresses")
+	errOpenRouterBadRequest        = errors.New("openrouter bad request")
+	errOpenRouterModelUnavailable  = errors.New("openrouter model unavailable")
 )
 
 var (
@@ -135,6 +139,7 @@ var (
 	procCloseClipboard                = user32.NewProc("CloseClipboard")
 	procGetClipboardData              = user32.NewProc("GetClipboardData")
 	procIsClipboardFormatAvailable    = user32.NewProc("IsClipboardFormatAvailable")
+	procRegisterClipboardFormatW      = user32.NewProc("RegisterClipboardFormatW")
 	procGetDC                         = user32.NewProc("GetDC")
 	procReleaseDC                     = user32.NewProc("ReleaseDC")
 	procPostMessageW                  = user32.NewProc("PostMessageW")
@@ -165,6 +170,8 @@ var (
 	procSetForegroundWindow           = user32.NewProc("SetForegroundWindow")
 	procLoadIconW                     = user32.NewProc("LoadIconW")
 	procCreateIconFromResourceEx      = user32.NewProc("CreateIconFromResourceEx")
+
+	procShellExecuteW = shell32.NewProc("ShellExecuteW")
 
 	procGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
 	procGlobalLock       = kernel32.NewProc("GlobalLock")
@@ -300,18 +307,21 @@ var (
 	password               string
 	language               = "ko"
 	imageAnalysisEnabled   bool
+	openRouterModel        = defaultOpenRouterModel
 	imageAnalysisBusy      bool
 	lastClipboardImageHash [32]byte
 	analysisResult         string
 	analysisErr            error
 
-	dialogWindow  uintptr
-	dialogEdit    uintptr
-	dialogValue   string
-	dialogCancel  bool
-	dialogModeNow dialogMode
-	dialogActive  bool
-	dialogBgBrush uintptr
+	dialogWindow     uintptr
+	dialogEdit       uintptr
+	dialogModelEdit  uintptr
+	dialogValue      string
+	dialogModelValue string
+	dialogCancel     bool
+	dialogModeNow    dialogMode
+	dialogActive     bool
+	dialogBgBrush    uintptr
 
 	idPattern = regexp.MustCompile(`^\d{9,10}$`)
 )
