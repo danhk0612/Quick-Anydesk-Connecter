@@ -30,7 +30,11 @@ func main() {
 
 	dialogBgBrush, _, _ = procGetSysColorBrush.Call(COLOR_BTNFACE)
 
-	configPath = filepath.Join(exeDir, "config.ini")
+	configPath, err = resolveConfigPath(exeDir)
+	if err != nil {
+		showError(err.Error())
+		return
+	}
 	password, language, imageAnalysisEnabled, openRouterModel, err = loadOrCreateConfig(configPath)
 	if err != nil {
 		if !errors.Is(err, errCancelled) {
