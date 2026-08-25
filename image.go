@@ -11,6 +11,7 @@ import (
 	"image/color"
 	"image/png"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -20,7 +21,10 @@ const (
 )
 
 func clipboardHasImage() bool {
-	for _, format := range []uintptr{CF_DIBV5, CF_DIB, CF_BITMAP} {
+	for _, format := range []uintptr{registeredClipboardFormat("PNG"), registeredClipboardFormat("image/png"), CF_DIBV5, CF_DIB, CF_BITMAP} {
+		if format == 0 {
+			continue
+		}
 		if r, _, _ := procIsClipboardFormatAvailable.Call(format); r != 0 {
 			return true
 		}
@@ -28,36 +32,83 @@ func clipboardHasImage() bool {
 	return false
 }
 
+func registeredClipboardFormat(name string) uintptr {
+	p, err := syscall.UTF16PtrFromString(name)
+	if err != nil {
+		return 0
+	}
+	r, _, _ := procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(p)))
+	return r
+}
+
+func openClipboardWithRetry() bool {
+	// WM_CLIPBOARDUPDATE can arrive while the source application still owns
+	// the clipboard for a few milliseconds. Retry briefly instead of treating
+	// that normal race as a read failure.
+	for i := 0; i < 10; i++ {
+		if r, _, _ := procOpenClipboard.Call(mainWindow); r != 0 {
+			return true
+		}
+		if i < 9 {
+			time.Sleep(15 * time.Millisecond)
+		}
+	}
+	return false
+}
+
+func readClipboardGlobalBytes(format uintptr) ([]byte, bool) {
+	if format == 0 || !clipboardFormatAvailable(format) {
+		return nil, false
+	}
+	handle, _, _ := procGetClipboardData.Call(format)
+	if handle == 0 {
+		return nil, false
+	}
+	ptr, _, _ := procGlobalLock.Call(handle)
+	if ptr == 0 {
+		return nil, false
+	}
+	defer procGlobalUnlock.Call(handle)
+	size, _, _ := procGlobalSize.Call(handle)
+	if size == 0 {
+		return nil, false
+	}
+	return append([]byte(nil), unsafe.Slice((*byte)(unsafe.Pointer(ptr)), int(size))...), true
+}
+
 func readClipboardImage() (image.Image, []byte, [32]byte, error) {
-	if r, _, _ := procOpenClipboard.Call(mainWindow); r == 0 {
+	if !openClipboardWithRetry() {
 		return nil, nil, [32]byte{}, fmt.Errorf("%s", currentMessages().errClipboardImageRead)
 	}
 	defer procCloseClipboard.Call()
 
 	var img image.Image
 	var err error
-	for _, format := range []uintptr{CF_DIBV5, CF_DIB} {
-		if r, _, _ := procIsClipboardFormatAvailable.Call(format); r == 0 {
-			continue
+
+	// Many browsers and screenshot tools expose a registered PNG clipboard
+	// format. Prefer it because it preserves the image without DIB quirks.
+	for _, format := range []uintptr{registeredClipboardFormat("PNG"), registeredClipboardFormat("image/png")} {
+		if raw, ok := readClipboardGlobalBytes(format); ok {
+			decoded, _, decodeErr := image.Decode(bytes.NewReader(raw))
+			if decodeErr == nil {
+				img = decoded
+				break
+			}
+			err = decodeErr
 		}
-		handle, _, _ := procGetClipboardData.Call(format)
-		if handle == 0 {
-			continue
-		}
-		ptr, _, _ := procGlobalLock.Call(handle)
-		if ptr == 0 {
-			continue
-		}
-		size, _, _ := procGlobalSize.Call(handle)
-		if size == 0 {
-			procGlobalUnlock.Call(handle)
-			continue
-		}
-		raw := append([]byte(nil), unsafe.Slice((*byte)(unsafe.Pointer(ptr)), int(size))...)
-		procGlobalUnlock.Call(handle)
-		img, err = decodeDIB(raw)
-		if err == nil {
-			break
+	}
+
+	// Standard Windows bitmap clipboard formats.
+	if img == nil {
+		for _, format := range []uintptr{CF_DIBV5, CF_DIB} {
+			raw, ok := readClipboardGlobalBytes(format)
+			if !ok {
+				continue
+			}
+			img, err = decodeDIB(raw)
+			if err == nil {
+				break
+			}
 		}
 	}
 
@@ -68,10 +119,7 @@ func readClipboardImage() (image.Image, []byte, [32]byte, error) {
 		}
 	}
 	if img == nil {
-		if err == nil {
-			err = fmt.Errorf("%s", currentMessages().errClipboardImageRead)
-		}
-		return nil, nil, [32]byte{}, err
+		return nil, nil, [32]byte{}, fmt.Errorf("%s", currentMessages().errClipboardImageRead)
 	}
 
 	analysisImage := resizeImageToMax(img, 1600)
