@@ -15,9 +15,77 @@ import (
 )
 
 const (
-	openRouterKeyURL = "https://openrouter.ai/api/v1/key"
-	openRouterModel  = "google/gemini-2.5-flash-lite"
+	openRouterKeyURL       = "https://openrouter.ai/api/v1/key"
+	defaultOpenRouterModel = "google/gemma-4-26b-a4b-it:free"
 )
+
+// openRouterHTTPError preserves OpenRouter/provider details while still
+// allowing errors.Is checks against the categorized sentinel error.
+type openRouterHTTPError struct {
+	kind   error
+	status int
+	detail string
+	model  string
+}
+
+func (e *openRouterHTTPError) Error() string {
+	if e.detail != "" {
+		return fmt.Sprintf("%s: %s", e.kind.Error(), e.detail)
+	}
+	return e.kind.Error()
+}
+
+func (e *openRouterHTTPError) Unwrap() error { return e.kind }
+
+func parseOpenRouterErrorDetail(raw []byte) string {
+	var payload struct {
+		Error struct {
+			Message  string `json:"message"`
+			Metadata struct {
+				Raw string `json:"raw"`
+			} `json:"metadata"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &payload) == nil {
+		parts := make([]string, 0, 2)
+		if v := strings.TrimSpace(payload.Error.Message); v != "" {
+			parts = append(parts, v)
+		}
+		if v := strings.TrimSpace(payload.Error.Metadata.Raw); v != "" && v != payload.Error.Message {
+			parts = append(parts, v)
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, " / ")
+		}
+	}
+	detail := strings.TrimSpace(string(raw))
+	if len(detail) > 500 {
+		detail = detail[:500] + "..."
+	}
+	return detail
+}
+
+func categorizedOpenRouterError(kind error, status int, raw []byte, model string) error {
+	return &openRouterHTTPError{
+		kind: kind, status: status, detail: parseOpenRouterErrorDetail(raw), model: model,
+	}
+}
+
+func isUpstreamProviderRateLimit(raw []byte) bool {
+	detail := strings.ToLower(parseOpenRouterErrorDetail(raw))
+	markers := []string{
+		"temporarily rate-limited upstream",
+		"rate-limited upstream",
+		"upstream rate limit",
+		"upstream provider",
+	}
+	for _, marker := range markers {
+		if strings.Contains(detail, marker) {
+			return true
+		}
+	}
+	return false
+}
 
 func validateOpenRouterKey(key string) error {
 	if strings.TrimSpace(key) == "" {
@@ -65,7 +133,8 @@ func validateOpenRouterKey(key string) error {
 }
 
 func configureOpenRouter() bool {
-	key, err := askOpenRouterKey()
+	existingKey, _ := loadOpenRouterAPIKey()
+	key, model, err := askOpenRouterSettings(existingKey, openRouterModel)
 	if err != nil {
 		return false
 	}
@@ -74,6 +143,13 @@ func configureOpenRouter() bool {
 		return false
 	}
 	if err := saveOpenRouterAPIKey(key); err != nil {
+		showError(err.Error())
+		return false
+	}
+	oldModel := openRouterModel
+	openRouterModel = strings.TrimSpace(model)
+	if err := persistConfig(); err != nil {
+		openRouterModel = oldModel
 		showError(err.Error())
 		return false
 	}
@@ -180,20 +256,23 @@ func analyzeImageForAnyDesk(pngData []byte) (string, error) {
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusPaymentRequired:
-		return "", errOpenRouterPayment
+		return "", categorizedOpenRouterError(errOpenRouterPayment, resp.StatusCode, raw, openRouterModel)
 	case http.StatusBadRequest:
-		return "", errOpenRouterBadRequest
+		return "", categorizedOpenRouterError(errOpenRouterBadRequest, resp.StatusCode, raw, openRouterModel)
 	case http.StatusNotFound:
-		return "", errOpenRouterModelUnavailable
+		return "", categorizedOpenRouterError(errOpenRouterModelUnavailable, resp.StatusCode, raw, openRouterModel)
 	case http.StatusUnauthorized:
-		return "", errOpenRouterUnauthorized
+		return "", categorizedOpenRouterError(errOpenRouterUnauthorized, resp.StatusCode, raw, openRouterModel)
 	case http.StatusForbidden:
-		return "", errOpenRouterForbidden
+		return "", categorizedOpenRouterError(errOpenRouterForbidden, resp.StatusCode, raw, openRouterModel)
 	case http.StatusTooManyRequests:
-		return "", errOpenRouterRateLimit
+		if isUpstreamProviderRateLimit(raw) {
+			return "", categorizedOpenRouterError(errOpenRouterUpstreamRateLimit, resp.StatusCode, raw, openRouterModel)
+		}
+		return "", categorizedOpenRouterError(errOpenRouterRateLimit, resp.StatusCode, raw, openRouterModel)
 	default:
 		if resp.StatusCode >= 500 {
-			return "", errOpenRouterServer
+			return "", categorizedOpenRouterError(errOpenRouterServer, resp.StatusCode, raw, openRouterModel)
 		}
 		return "", fmt.Errorf("OpenRouter HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
@@ -248,6 +327,8 @@ func showImageAnalysisError(err error) {
 		text = m.errOpenRouterUnauthorized
 	case errors.Is(err, errOpenRouterForbidden):
 		text = m.errOpenRouterForbidden
+	case errors.Is(err, errOpenRouterUpstreamRateLimit):
+		text = m.errOpenRouterUpstreamRateLimit
 	case errors.Is(err, errOpenRouterRateLimit):
 		text = m.errOpenRouterRateLimit
 	case errors.Is(err, errOpenRouterServer):
@@ -263,6 +344,15 @@ func showImageAnalysisError(err error) {
 	default:
 		if strings.Contains(err.Error(), errOpenRouterNetwork.Error()) {
 			text = m.errOpenRouterNetwork
+		}
+	}
+	var httpErr *openRouterHTTPError
+	if errors.As(err, &httpErr) {
+		if detail := strings.TrimSpace(httpErr.detail); detail != "" {
+			text += "\n\n" + m.openRouterResponseDetail + "\n" + detail
+		}
+		if model := strings.TrimSpace(httpErr.model); model != "" {
+			text += "\n\n" + m.openRouterModelDetail + "\n" + model
 		}
 	}
 	showError(text)
