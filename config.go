@@ -7,35 +7,35 @@ import (
 	"strings"
 )
 
-func loadOrCreateConfig(path string) (string, string, bool, error) {
-	p, lang, imageEnabled, err := readConfig(path)
+func loadOrCreateConfig(path string) (string, string, bool, string, error) {
+	p, lang, imageEnabled, model, err := readConfig(path)
 	if err == nil {
 		if lang != "en" {
 			lang = "ko"
 		}
-		return p, lang, imageEnabled, nil
+		return p, lang, imageEnabled, model, nil
 	}
 
 	if !os.IsNotExist(err) {
-		return "", "ko", false, err
+		return "", "ko", false, defaultOpenRouterModel, err
 	}
 
 	language = "ko"
 	p, err = askPassword()
 	if err != nil {
-		return "", "ko", false, err
+		return "", "ko", false, defaultOpenRouterModel, err
 	}
 
-	if err := saveConfig(path, p, "ko", false); err != nil {
-		return "", "ko", false, err
+	if err := saveConfig(path, p, "ko", false, defaultOpenRouterModel); err != nil {
+		return "", "ko", false, defaultOpenRouterModel, err
 	}
-	return p, "ko", false, nil
+	return p, "ko", false, defaultOpenRouterModel, nil
 }
 
-func readConfig(path string) (string, string, bool, error) {
+func readConfig(path string) (string, string, bool, string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", "ko", false, err
+		return "", "ko", false, defaultOpenRouterModel, err
 	}
 	defer f.Close()
 
@@ -44,6 +44,7 @@ func readConfig(path string) (string, string, bool, error) {
 	p := ""
 	lang := "ko"
 	imageEnabled := false
+	model := defaultOpenRouterModel
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -76,31 +77,39 @@ func readConfig(path string) (string, string, bool, error) {
 			case "image_analysis":
 				imageEnabled = strings.EqualFold(strings.TrimSpace(value), "true") || strings.TrimSpace(value) == "1"
 			}
+		case "openrouter":
+			if key == "model" && strings.TrimSpace(value) != "" {
+				model = strings.TrimSpace(value)
+			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return "", "ko", false, fmt.Errorf(currentMessages().errConfigRead, err)
+		return "", "ko", false, defaultOpenRouterModel, fmt.Errorf(currentMessages().errConfigRead, err)
 	}
 	if p == "" {
-		return "", "ko", false, fmt.Errorf("%s", currentMessages().errPasswordMissing)
+		return "", "ko", false, defaultOpenRouterModel, fmt.Errorf("%s", currentMessages().errPasswordMissing)
 	}
-	return p, lang, imageEnabled, nil
+	return p, lang, imageEnabled, model, nil
 }
 
-func saveConfig(path, p, lang string, imageEnabled bool) error {
+func saveConfig(path, p, lang string, imageEnabled bool, model string) error {
 	if p == "" {
 		return fmt.Errorf("%s", currentMessages().errPasswordEmpty)
 	}
 	if lang != "en" {
 		lang = "ko"
 	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = defaultOpenRouterModel
+	}
 	imageValue := "false"
 	if imageEnabled {
 		imageValue = "true"
 	}
 
-	content := "[anydesk]\r\npassword=" + p + "\r\n\r\n[general]\r\nlanguage=" + lang + "\r\nimage_analysis=" + imageValue + "\r\n"
+	content := "[anydesk]\r\npassword=" + p + "\r\n\r\n[general]\r\nlanguage=" + lang + "\r\nimage_analysis=" + imageValue + "\r\n\r\n[openrouter]\r\nmodel=" + model + "\r\n"
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		return fmt.Errorf(currentMessages().errConfigSave, err)
 	}
@@ -108,7 +117,7 @@ func saveConfig(path, p, lang string, imageEnabled bool) error {
 }
 
 func persistConfig() error {
-	return saveConfig(configPath, password, language, imageAnalysisEnabled)
+	return saveConfig(configPath, password, language, imageAnalysisEnabled, openRouterModel)
 }
 
 func setLanguage(lang string) {
