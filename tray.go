@@ -2,16 +2,27 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"os"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 )
 
+type clipboardImageResult struct {
+	img     image.Image
+	pngData []byte
+	hash    [32]byte
+	err     error
+}
+
 var (
-	analysisResultMu     sync.Mutex
-	lastClipboardImageAt time.Time
+	analysisResultMu      sync.Mutex
+	clipboardImageMu      sync.Mutex
+	clipboardImagePending clipboardImageResult
+	lastClipboardImageAt  time.Time
 )
 
 func mainWindowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
@@ -22,6 +33,10 @@ func mainWindowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintpt
 
 	case WM_IMAGE_ANALYSIS_RESULT:
 		handleImageAnalysisResult()
+		return 0
+
+	case WM_CLIPBOARD_IMAGE_READY:
+		handleClipboardImageReady()
 		return 0
 
 	case WM_TRAYICON:
@@ -43,7 +58,7 @@ func mainWindowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintpt
 }
 
 func handleClipboardUpdate() {
-	if dialogActive || imageAnalysisBusy {
+	if dialogActive || imageAnalysisBusy || clipboardImageBusy {
 		return
 	}
 
@@ -58,18 +73,45 @@ func handleClipboardUpdate() {
 		return
 	}
 
-	img, pngData, hash, err := readClipboardImage()
-	if err != nil {
-		showError(err.Error())
+	// Clipboard image decoding, resizing and PNG encoding can be expensive for
+	// large screenshots/photos. Keep that work off the Win32 UI thread so tray
+	// and window messages remain responsive.
+	clipboardImageBusy = true
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		img, pngData, hash, err := readClipboardImage()
+		clipboardImageMu.Lock()
+		clipboardImagePending = clipboardImageResult{img: img, pngData: pngData, hash: hash, err: err}
+		clipboardImageMu.Unlock()
+		procPostMessageW.Call(mainWindow, WM_CLIPBOARD_IMAGE_READY, 0, 0)
+	}()
+}
+
+func handleClipboardImageReady() {
+	clipboardImageBusy = false
+
+	clipboardImageMu.Lock()
+	pending := clipboardImagePending
+	clipboardImagePending = clipboardImageResult{}
+	clipboardImageMu.Unlock()
+
+	if pending.err != nil {
+		showError(pending.err.Error())
 		return
 	}
-	if hashEqual(hash, lastClipboardImageHash) && time.Since(lastClipboardImageAt) < 2*time.Second {
+	if pending.img == nil || len(pending.pngData) == 0 {
+		showError(currentMessages().errClipboardImageRead)
 		return
 	}
-	lastClipboardImageHash = hash
+	if hashEqual(pending.hash, lastClipboardImageHash) && time.Since(lastClipboardImageAt) < 2*time.Second {
+		return
+	}
+	lastClipboardImageHash = pending.hash
 	lastClipboardImageAt = time.Now()
 
-	approved, err := showImagePreviewConfirm(img)
+	approved, err := showImagePreviewConfirm(pending.img)
 	if err != nil {
 		showError(err.Error())
 		return
@@ -86,7 +128,7 @@ func handleClipboardUpdate() {
 		analysisErr = err
 		analysisResultMu.Unlock()
 		procPostMessageW.Call(mainWindow, WM_IMAGE_ANALYSIS_RESULT, 0, 0)
-	}(append([]byte(nil), pngData...))
+	}(append([]byte(nil), pending.pngData...))
 }
 
 func handleImageAnalysisResult() {
@@ -157,7 +199,6 @@ func showTrayMenu(hwnd uintptr) {
 	if languageMenu == 0 {
 		return
 	}
-	defer procDestroyMenu.Call(languageMenu)
 
 	m := currentMessages()
 	ptr := func(v string) *uint16 { p, _ := syscall.UTF16PtrFromString(v); return p }
