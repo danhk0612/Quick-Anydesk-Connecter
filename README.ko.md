@@ -15,6 +15,9 @@ Quick Anydesk Connect는 반복적인 AnyDesk 원격 지원 접속 절차를 간
 - 설정된 무인 접속 기본 암호 자동 제출
 - AnyDesk가 완전히 종료된 경우 먼저 AnyDesk를 시작한 뒤 초기화 후 접속
 - Windows 시작 프로그램 등록/제거
+- 클립보드 이미지 미리보기 후 사용자 승인 시 OpenRouter Vision으로 AnyDesk 번호 분석
+- OpenRouter API Key는 Windows Credential Manager에 저장
+- 상황별 OpenRouter/네트워크/분석 오류 안내
 - 한국어/영어 UI
 - 트레이 메뉴에서 재시작 없이 언어 변경
 - 기본 언어 한국어
@@ -51,6 +54,9 @@ C:\Program Files\AnyDesk\AnyDesk.exe
 ### 트레이 메뉴
 
 - 원격 접속
+- 이미지 자동 분석
+- 기본 암호 수정
+- OpenRouter 설정
 - 시작 프로그램 등록
 - 시작 프로그램 제거
 - 언어
@@ -68,6 +74,10 @@ password=YOUR_PASSWORD
 
 [general]
 language=ko
+image_analysis=false
+
+[openrouter]
+model=google/gemma-4-26b-a4b-it:free
 ```
 
 지원 언어:
@@ -79,6 +89,35 @@ language=ko
 
 > [!WARNING]
 > 무인 접속 기본 암호는 `config.ini`에 평문으로 저장됩니다. 적절한 사용자만 접근할 수 있는 위치에 보관하십시오.
+
+
+## 이미지 자동 분석
+
+이미지 자동 분석은 기본적으로 꺼져 있습니다. 트레이 메뉴에서 활성화할 수 있습니다.
+
+최초 활성화 시 OpenRouter API Key를 입력하면 비용이 발생하지 않는 `GET /api/v1/key` 요청으로 키를 검증한 뒤 Windows Credential Manager에 저장합니다. API Key는 `config.ini`에 저장하지 않습니다.
+
+이미지가 클립보드에 복사되면 곧바로 외부로 전송하지 않습니다. 먼저 이미지 미리보기와 **분석 / 무시** 버튼을 표시하며, 사용자가 **분석**을 선택한 경우에만 이미지가 OpenRouter로 전송됩니다.
+
+**OpenRouter 설정**에서는 API Key와 모델 ID를 모두 직접 입력할 수 있습니다. 같은 창의 버튼으로 OpenRouter API Key 발급 페이지도 열 수 있습니다. 기본 모델은 `google/gemma-4-26b-a4b-it:free`이지만 모델 입력란은 정해진 목록으로 제한하지 않습니다. 이미지 입력을 지원하는 OpenRouter 모델이면 원하는 모델 ID를 직접 입력할 수 있습니다.
+
+### 추천 이미지 분석 모델
+
+아래 목록은 스크린샷에서 짧은 AnyDesk 번호를 읽는 용도로 검토하기 좋은 예시입니다. OpenRouter의 모델 가용성, 가격, 요청 제한, 모델 ID는 변경될 수 있으므로 실제 사용 전 현재 모델 페이지를 확인하십시오.
+
+| 모델 ID | 비용 | 참고 |
+| --- | --- | --- |
+| `google/gemma-4-26b-a4b-it:free` | 무료 | 기본값. 멀티모달 지원. 무료 upstream provider가 일시적으로 rate limit에 걸릴 수 있습니다. |
+| `google/gemma-4-31b-it:free` | 무료 | 더 큰 무료 멀티모달 대안. 기본 무료 모델이 제한 상태일 때 바꿔볼 수 있습니다. |
+| `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | 무료 | 이미지 입력을 지원하는 범용 멀티모달 모델입니다. |
+| `google/gemini-2.5-flash-lite` | 유료, 저비용 | 단순 번호 추출 용도에서 안정적인 대안으로 사용할 수 있습니다. |
+
+무료 모델에서 upstream provider 요청 제한 오류가 발생하면 잠시 후 다시 시도하거나 **OpenRouter 설정**에서 다른 모델로 변경하십시오. 프로그램은 이 상황을 일반적인 OpenRouter/계정 요청 한도와 구분하고, 가능한 경우 provider의 실제 오류 응답도 함께 표시합니다.
+
+> [!IMPORTANT]
+> 사용자가 분석을 승인한 클립보드 이미지는 OpenRouter와 선택한 모델 제공자에게 전송됩니다. 무료 모델 제공자는 자체적인 로깅, 보관, 가용성 및 요청 제한 정책을 적용할 수 있습니다. 민감한 이미지라면 외부 서비스 전송에 동의할 수 있는 경우에만 분석하십시오.
+
+OpenRouter는 별도 서비스이며 사용량에 따라 API 비용이 발생할 수 있습니다. API Key는 <https://openrouter.ai/settings/keys>에서 생성하거나 관리할 수 있습니다.
 
 ## AnyDesk 번호 판별
 

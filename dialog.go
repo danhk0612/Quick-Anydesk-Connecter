@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -30,6 +31,119 @@ func askPassword() (string, error) {
 	)
 }
 
+func askNewPassword() (string, error) {
+	m := currentMessages()
+	return showInputDialog(modePassword, m.changePasswordTitle, m.setupPassword, m.changePasswordDescription, true, m.saveButton)
+}
+
+func askOpenRouterSettings(existingKey, existingModel string) (string, string, error) {
+	if dialogActive {
+		return "", "", errCancelled
+	}
+	dialogActive = true
+	defer func() { dialogActive = false }()
+
+	m := currentMessages()
+	className, _ := syscall.UTF16PtrFromString("QuickAnydeskConnectOpenRouterDialog")
+	titleW, _ := syscall.UTF16PtrFromString(m.openRouterTitle)
+	hInstance, _, _ := procGetModuleHandleW.Call(0)
+	wc := wndClassEx{
+		cbSize:        uint32(unsafe.Sizeof(wndClassEx{})),
+		lpfnWndProc:   syscall.NewCallback(dialogWindowProc),
+		hInstance:     hInstance,
+		hbrBackground: dialogBgBrush,
+		lpszClassName: className,
+	}
+	procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
+
+	width, height := int32(520), int32(330)
+	screenW, _, _ := procGetSystemMetrics.Call(0)
+	screenH, _, _ := procGetSystemMetrics.Call(1)
+	x := (int32(screenW) - width) / 2
+	y := (int32(screenH) - height) / 2
+	dialogWindow, _, _ = procCreateWindowExW.Call(
+		WS_EX_TOPMOST, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(titleW)),
+		WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,
+		uintptr(x), uintptr(y), uintptr(width), uintptr(height), 0, 0, hInstance, 0,
+	)
+	if dialogWindow == 0 {
+		return "", "", fmt.Errorf("%s", m.errDialogCreate)
+	}
+
+	font, _, _ := procGetStockObject.Call(DEFAULT_GUI_FONT)
+	staticClass, _ := syscall.UTF16PtrFromString("STATIC")
+	editClass, _ := syscall.UTF16PtrFromString("EDIT")
+	buttonClass, _ := syscall.UTF16PtrFromString("BUTTON")
+
+	createStatic := func(text string, x, y, w, h uintptr) uintptr {
+		t, _ := syscall.UTF16PtrFromString(text)
+		hwnd, _, _ := procCreateWindowExW.Call(0, uintptr(unsafe.Pointer(staticClass)), uintptr(unsafe.Pointer(t)), WS_CHILD|WS_VISIBLE, x, y, w, h, dialogWindow, 0, hInstance, 0)
+		setFont(hwnd, font)
+		return hwnd
+	}
+	createStatic(m.openRouterKeyDescription, 24, 18, 455, 36)
+	createStatic(m.openRouterKeyLabel, 24, 62, 455, 20)
+
+	keyW, _ := syscall.UTF16PtrFromString(existingKey)
+	dialogEdit, _, _ = procCreateWindowExW.Call(0, uintptr(unsafe.Pointer(editClass)), uintptr(unsafe.Pointer(keyW)), WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER|ES_AUTOHSCROLL|ES_PASSWORD, 24, 84, 455, 28, dialogWindow, ID_EDIT, hInstance, 0)
+	setFont(dialogEdit, font)
+
+	linkW, _ := syscall.UTF16PtrFromString(m.openRouterKeysLink)
+	linkBtn, _, _ := procCreateWindowExW.Call(0, uintptr(unsafe.Pointer(buttonClass)), uintptr(unsafe.Pointer(linkW)), WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON, 24, 120, 240, 28, dialogWindow, ID_OPENROUTER_KEYS_LINK, hInstance, 0)
+	setFont(linkBtn, font)
+
+	createStatic(m.openRouterModelLabel, 24, 160, 455, 20)
+	if existingModel == "" {
+		existingModel = defaultOpenRouterModel
+	}
+	modelW, _ := syscall.UTF16PtrFromString(existingModel)
+	dialogModelEdit, _, _ = procCreateWindowExW.Call(0, uintptr(unsafe.Pointer(editClass)), uintptr(unsafe.Pointer(modelW)), WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER|ES_AUTOHSCROLL, 24, 182, 455, 28, dialogWindow, ID_MODEL_EDIT, hInstance, 0)
+	setFont(dialogModelEdit, font)
+
+	okW, _ := syscall.UTF16PtrFromString(m.verifyButton)
+	cancelW, _ := syscall.UTF16PtrFromString(m.cancelButton)
+	okBtn, _, _ := procCreateWindowExW.Call(0, uintptr(unsafe.Pointer(buttonClass)), uintptr(unsafe.Pointer(okW)), WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON, 309, 232, 80, 30, dialogWindow, ID_OK, hInstance, 0)
+	setFont(okBtn, font)
+	cancelBtn, _, _ := procCreateWindowExW.Call(0, uintptr(unsafe.Pointer(buttonClass)), uintptr(unsafe.Pointer(cancelW)), WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON, 399, 232, 80, 30, dialogWindow, ID_CANCEL, hInstance, 0)
+	setFont(cancelBtn, font)
+
+	dialogValue = ""
+	dialogModelValue = ""
+	dialogCancel = false
+	dialogModeNow = modeOpenRouterKey
+	procShowWindow.Call(dialogWindow, SW_SHOW)
+	procUpdateWindow.Call(dialogWindow)
+	procSetForegroundWindow.Call(dialogWindow)
+	procSetFocus.Call(dialogEdit)
+
+	var msg msg
+	for dialogWindow != 0 {
+		r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
+		if int32(r) <= 0 {
+			dialogCancel = true
+			break
+		}
+		if msg.message == WM_KEYDOWN {
+			switch msg.wParam {
+			case VK_RETURN:
+				submitDialog()
+				continue
+			case VK_ESCAPE:
+				dialogCancel = true
+				procDestroyWindow.Call(dialogWindow)
+				dialogWindow = 0
+				continue
+			}
+		}
+		procTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
+		procDispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
+	}
+	if dialogCancel || dialogValue == "" || dialogModelValue == "" {
+		return "", "", errCancelled
+	}
+	return dialogValue, dialogModelValue, nil
+}
+
 func showInputDialog(mode dialogMode, title, fieldLabel, description string, passwordField bool, okText string) (string, error) {
 	if dialogActive {
 		return "", errCancelled
@@ -51,7 +165,7 @@ func showInputDialog(mode dialogMode, title, fieldLabel, description string, pas
 	procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 
 	width := int32(460)
-	height := int32(210)
+	height := int32(225)
 
 	screenW, _, _ := procGetSystemMetrics.Call(0)
 	screenH, _, _ := procGetSystemMetrics.Call(1)
@@ -78,13 +192,13 @@ func showInputDialog(mode dialogMode, title, fieldLabel, description string, pas
 
 	desc, _, _ := procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(staticClass)), uintptr(unsafe.Pointer(descW)),
-		WS_CHILD|WS_VISIBLE, 24, 22, 400, 24, dialogWindow, 0, hInstance, 0,
+		WS_CHILD|WS_VISIBLE, 24, 20, 400, 38, dialogWindow, 0, hInstance, 0,
 	)
 	setFont(desc, font)
 
 	label, _, _ := procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(staticClass)), uintptr(unsafe.Pointer(labelW)),
-		WS_CHILD|WS_VISIBLE, 24, 60, 400, 20, dialogWindow, 0, hInstance, 0,
+		WS_CHILD|WS_VISIBLE, 24, 66, 400, 20, dialogWindow, 0, hInstance, 0,
 	)
 	setFont(label, font)
 
@@ -97,7 +211,7 @@ func showInputDialog(mode dialogMode, title, fieldLabel, description string, pas
 	empty, _ := syscall.UTF16PtrFromString("")
 	dialogEdit, _, _ = procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(editClass)), uintptr(unsafe.Pointer(empty)),
-		editStyle, 24, 84, 400, 28, dialogWindow, ID_EDIT, hInstance, 0,
+		editStyle, 24, 90, 400, 28, dialogWindow, ID_EDIT, hInstance, 0,
 	)
 	setFont(dialogEdit, font)
 
@@ -108,14 +222,14 @@ func showInputDialog(mode dialogMode, title, fieldLabel, description string, pas
 	okBtn, _, _ := procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(buttonClass)), uintptr(unsafe.Pointer(okW)),
 		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON,
-		254, 128, 80, 30, dialogWindow, ID_OK, hInstance, 0,
+		254, 140, 80, 30, dialogWindow, ID_OK, hInstance, 0,
 	)
 	setFont(okBtn, font)
 
 	cancelBtn, _, _ := procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(buttonClass)), uintptr(unsafe.Pointer(cancelW)),
 		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
-		344, 128, 80, 30, dialogWindow, ID_CANCEL, hInstance, 0,
+		344, 140, 80, 30, dialogWindow, ID_CANCEL, hInstance, 0,
 	)
 	setFont(cancelBtn, font)
 
@@ -181,6 +295,9 @@ func dialogWindowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uint
 		case ID_OK:
 			submitDialog()
 			return 0
+		case ID_OPENROUTER_KEYS_LINK:
+			openOpenRouterKeysPage()
+			return 0
 		case ID_CANCEL:
 			dialogCancel = true
 			procDestroyWindow.Call(hwnd)
@@ -223,21 +340,36 @@ func submitDialog() {
 
 	case modePassword:
 		if raw == "" {
-			messageBox(
-				dialogWindow,
-				currentMessages().emptyPassword,
-				currentMessages().inputCheckTitle,
-				MB_OK|MB_ICONERROR|MB_TOPMOST|MB_SETFOREGROUND,
-			)
+			messageBox(dialogWindow, currentMessages().emptyPassword, currentMessages().inputCheckTitle, MB_OK|MB_ICONERROR|MB_TOPMOST|MB_SETFOREGROUND)
 			procSetFocus.Call(dialogEdit)
 			return
 		}
 		dialogValue = raw
+	case modeOpenRouterKey:
+		if raw == "" {
+			messageBox(dialogWindow, currentMessages().errOpenRouterKeyEmpty, currentMessages().inputCheckTitle, MB_OK|MB_ICONERROR|MB_TOPMOST|MB_SETFOREGROUND)
+			procSetFocus.Call(dialogEdit)
+			return
+		}
+		model := strings.TrimSpace(getWindowText(dialogModelEdit))
+		if model == "" {
+			messageBox(dialogWindow, currentMessages().errOpenRouterModelEmpty, currentMessages().inputCheckTitle, MB_OK|MB_ICONERROR|MB_TOPMOST|MB_SETFOREGROUND)
+			procSetFocus.Call(dialogModelEdit)
+			return
+		}
+		dialogValue = raw
+		dialogModelValue = model
 	}
 
 	dialogCancel = false
 	procDestroyWindow.Call(dialogWindow)
 	dialogWindow = 0
+}
+
+func openOpenRouterKeysPage() {
+	verb, _ := syscall.UTF16PtrFromString("open")
+	url, _ := syscall.UTF16PtrFromString("https://openrouter.ai/settings/keys")
+	procShellExecuteW.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(url)), 0, 0, SW_SHOWNORMAL)
 }
 
 func getWindowText(hwnd uintptr) string {
