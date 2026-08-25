@@ -35,6 +35,12 @@ jobs:
       - name: Build
         run: go build -trimpath -ldflags="-s -w -H windowsgui" -o QuickAnydeskConnect.exe .
 
+      - name: Create SHA-256 file
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash QuickAnydeskConnect.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  QuickAnydeskConnect.exe" | Set-Content -Encoding ascii QuickAnydeskConnect.exe.sha256
+
       - name: Attach executable to release
         shell: pwsh
         env:
@@ -45,14 +51,14 @@ jobs:
           gh release view $tag --repo "${{ github.repository }}" *> $null
           if ($LASTEXITCODE -eq 0) {
             # A release created in the GitHub UI already has its release notes.
-            # Keep the existing body unchanged and only attach/replace the EXE.
-            gh release upload $tag QuickAnydeskConnect.exe `
+            # Keep the existing body unchanged and only attach/replace assets.
+            gh release upload $tag QuickAnydeskConnect.exe QuickAnydeskConnect.exe.sha256 `
               --repo "${{ github.repository }}" `
               --clobber
           }
           else {
             # Support the alternative workflow where only a tag is pushed.
-            gh release create $tag QuickAnydeskConnect.exe `
+            gh release create $tag QuickAnydeskConnect.exe QuickAnydeskConnect.exe.sha256 `
               --repo "${{ github.repository }}" `
               --generate-notes `
               --title $tag
