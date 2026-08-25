@@ -21,6 +21,16 @@ func main() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	instanceHandle, acquired, err := acquireSingleInstance()
+	if err != nil {
+		showError(err.Error())
+		return
+	}
+	if !acquired {
+		return
+	}
+	defer releaseSingleInstance(instanceHandle)
+
 	exePath, err := os.Executable()
 	if err != nil {
 		showError(currentMessages().errExecutablePath)
