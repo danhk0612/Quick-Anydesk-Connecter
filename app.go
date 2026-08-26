@@ -43,6 +43,7 @@ func main() {
 	_ = removeStaleStartupRegistration()
 
 	dialogBgBrush, _, _ = procGetSysColorBrush.Call(COLOR_BTNFACE)
+	registerWindowIconClasses()
 
 	configPath, err = resolveConfigPath(exeDir)
 	if err != nil {
@@ -71,11 +72,14 @@ func runTrayApp() error {
 	className, _ := syscall.UTF16PtrFromString("QuickAnydeskConnectTrayWindow")
 	windowName, _ := syscall.UTF16PtrFromString("Quick Anydesk Connect")
 	hInstance, _, _ := procGetModuleHandleW.Call(0)
+	icon := appWindowIcon()
 
 	wc := wndClassEx{
 		cbSize:        uint32(unsafe.Sizeof(wndClassEx{})),
 		lpfnWndProc:   syscall.NewCallback(mainWindowProc),
 		hInstance:     hInstance,
+		hIcon:         icon,
+		hIconSm:       icon,
 		hbrBackground: dialogBgBrush,
 		lpszClassName: className,
 	}
