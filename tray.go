@@ -74,6 +74,7 @@ func handleClipboardUpdate() {
 		return
 	}
 	clipboardImageBusy = true
+	refreshTrayAppearance()
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
@@ -87,6 +88,7 @@ func handleClipboardUpdate() {
 
 func handleClipboardImageReady() {
 	clipboardImageBusy = false
+	refreshTrayAppearance()
 	clipboardImageMu.Lock()
 	pending := clipboardImagePending
 	clipboardImagePending = clipboardImageResult{}
@@ -113,6 +115,7 @@ func handleClipboardImageReady() {
 		return
 	}
 	imageAnalysisBusy = true
+	refreshTrayAppearance()
 	go func(data []byte) {
 		result, err := analyzeImageForAnyDesk(data)
 		analysisResultMu.Lock()
@@ -125,6 +128,7 @@ func handleClipboardImageReady() {
 
 func handleImageAnalysisResult() {
 	imageAnalysisBusy = false
+	refreshTrayAppearance()
 	analysisResultMu.Lock()
 	result, err := analysisResult, analysisErr
 	analysisResult = ""
@@ -362,13 +366,14 @@ func unregisterStartup() error {
 }
 
 func addTrayIcon() error {
-	icon := loadAppIcon()
+	icon := appWindowIcon()
 	trayIcon = notifyIconData{cbSize: uint32(unsafe.Sizeof(notifyIconData{})), hWnd: mainWindow, uID: 1, uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP, uCallbackMessage: WM_TRAYICON, hIcon: icon}
 	tip := syscall.StringToUTF16("Quick Anydesk Connect")
 	copy(trayIcon.szTip[:], tip)
 	if r, _, _ := procShellNotifyIconW.Call(NIM_ADD, uintptr(unsafe.Pointer(&trayIcon))); r == 0 {
 		return fmt.Errorf("%s", currentMessages().errTrayIcon)
 	}
+	refreshTrayAppearance()
 	return nil
 }
 
