@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	appVersion          = "1.3.1"
+	appVersion          = "1.4.0"
 	latestReleaseAPI    = "https://api.github.com/repos/danhk0612/Quick-Anydesk-Connecter/releases/latest"
 	updateExeAssetName  = "QuickAnydeskConnect.exe"
 	updateHashAssetName = "QuickAnydeskConnect.exe.sha256"
@@ -117,6 +117,7 @@ func startUpdateCheck() {
 	}
 	updateCheckBusy = true
 	updateMu.Unlock()
+	refreshTrayAppearance()
 	go func() {
 		release, err := fetchLatestRelease()
 		updateMu.Lock()
@@ -132,6 +133,7 @@ func handleUpdateCheckResult() {
 	pendingUpdateCheck = updateCheckResult{}
 	updateCheckBusy = false
 	updateMu.Unlock()
+	refreshTrayAppearance()
 	m := currentUpdaterMessages()
 	if result.err != nil {
 		showError(fmt.Sprintf(m.checkFailure, result.err))
@@ -177,6 +179,7 @@ func startUpdateDownload(release githubRelease) {
 	}
 	updateDownloadBusy = true
 	updateMu.Unlock()
+	refreshTrayAppearance()
 	go func() {
 		result := prepareUpdate(release)
 		updateMu.Lock()
@@ -192,6 +195,7 @@ func handleUpdateDownloadResult() {
 	pendingUpdateDownload = updateDownloadResult{}
 	updateDownloadBusy = false
 	updateMu.Unlock()
+	refreshTrayAppearance()
 	if result.err != nil {
 		showError(fmt.Sprintf(currentUpdaterMessages().downloadFailure, result.err))
 		return

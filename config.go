@@ -132,7 +132,9 @@ func setLanguage(lang string) {
 	if err := persistConfig(); err != nil {
 		language = old
 		showError(err.Error())
+		return
 	}
+	refreshTrayAppearance()
 }
 
 func setImageAnalysisEnabled(enabled bool) error {
@@ -142,5 +144,6 @@ func setImageAnalysisEnabled(enabled bool) error {
 		imageAnalysisEnabled = old
 		return err
 	}
+	refreshTrayAppearance()
 	return nil
 }
