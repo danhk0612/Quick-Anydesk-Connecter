@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -115,23 +114,26 @@ func isAnyDeskRunning(anyDeskPath string) (bool, error) {
 }
 
 func connect(anyDeskPath, target, p string) error {
+	// Let the just-closed input/confirmation window finish handing focus back
+	// before sending the command to an already-running AnyDesk instance. This
+	// also makes the manual-entry path behave more like clipboard confirmation.
+	time.Sleep(300 * time.Millisecond)
+
 	cmd := exec.Command(anyDeskPath, target, "--with-password")
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-
+	// Attach the password stream before starting AnyDesk. Some AnyDesk launcher
+	// builds hand the request off to an existing process and exit very quickly;
+	// preparing stdin up front avoids a race between process startup and writing
+	// the unattended-access password.
+	cmd.Stdin = strings.NewReader(p + "\r\n")
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
-	if _, err := io.WriteString(stdin, p+"\n"); err != nil {
-		_ = stdin.Close()
-		return err
-	}
-
-	return stdin.Close()
+	// Reap the short-lived launcher without blocking the tray/UI thread. The
+	// actual remote session is owned by AnyDesk's existing process.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 func readClipboardText() (string, error) {
