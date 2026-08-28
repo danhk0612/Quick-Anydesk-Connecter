@@ -7,6 +7,15 @@ import (
 	"unsafe"
 )
 
+const (
+	idPasswordVisibility = 1006
+	emGetSel              = 0x00B0
+	emSetSel              = 0x00B1
+	emSetPasswordChar     = 0x00CC
+)
+
+var dialogPasswordVisible bool
+
 func askAnyDeskID() (string, error) {
 	m := currentMessages()
 	return showInputDialog(
@@ -203,19 +212,33 @@ func showInputDialog(mode dialogMode, title, fieldLabel, description string, pas
 	setFont(label, font)
 
 	editStyle := uintptr(WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL)
+	editWidth := uintptr(400)
 	if passwordField {
 		editStyle |= ES_PASSWORD
+		editWidth = 360
 	}
 
 	editClass, _ := syscall.UTF16PtrFromString("EDIT")
 	empty, _ := syscall.UTF16PtrFromString("")
 	dialogEdit, _, _ = procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(editClass)), uintptr(unsafe.Pointer(empty)),
-		editStyle, 24, 90, 400, 28, dialogWindow, ID_EDIT, hInstance, 0,
+		editStyle, 24, 90, editWidth, 28, dialogWindow, ID_EDIT, hInstance, 0,
 	)
 	setFont(dialogEdit, font)
 
 	buttonClass, _ := syscall.UTF16PtrFromString("BUTTON")
+	if passwordField {
+		eyeW, _ := syscall.UTF16PtrFromString("👁")
+		eyeBtn, _, _ := procCreateWindowExW.Call(
+			0, uintptr(unsafe.Pointer(buttonClass)), uintptr(unsafe.Pointer(eyeW)),
+			WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
+			388, 90, 36, 28, dialogWindow, idPasswordVisibility, hInstance, 0,
+		)
+		setFont(eyeBtn, font)
+		dialogPasswordVisible = false
+		procSendMessageW.Call(dialogEdit, emSetPasswordChar, uintptr('●'), 0)
+	}
+
 	okW, _ := syscall.UTF16PtrFromString(okText)
 	cancelW, _ := syscall.UTF16PtrFromString(currentMessages().cancelButton)
 
@@ -295,6 +318,9 @@ func dialogWindowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uint
 		case ID_OK:
 			submitDialog()
 			return 0
+		case idPasswordVisibility:
+			togglePasswordVisibility()
+			return 0
 		case ID_OPENROUTER_KEYS_LINK:
 			openOpenRouterKeysPage()
 			return 0
@@ -318,6 +344,25 @@ func dialogWindowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uint
 
 	r, _, _ := procDefWindowProcW.Call(hwnd, uintptr(message), wParam, lParam)
 	return r
+}
+
+func togglePasswordVisibility() {
+	if dialogEdit == 0 || dialogModeNow != modePassword {
+		return
+	}
+
+	selection, _, _ := procSendMessageW.Call(dialogEdit, emGetSel, 0, 0)
+	start := selection & 0xffff
+	end := (selection >> 16) & 0xffff
+
+	dialogPasswordVisible = !dialogPasswordVisible
+	mask := uintptr('●')
+	if dialogPasswordVisible {
+		mask = 0
+	}
+	procSendMessageW.Call(dialogEdit, emSetPasswordChar, mask, 0)
+	procSendMessageW.Call(dialogEdit, emSetSel, start, end)
+	procSetFocus.Call(dialogEdit)
 }
 
 func submitDialog() {
