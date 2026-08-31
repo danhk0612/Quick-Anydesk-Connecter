@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,7 +22,7 @@ import (
 )
 
 const (
-	appVersion          = "1.5.2"
+	appVersion          = "1.6.0"
 	latestReleaseAPI    = "https://api.github.com/repos/danhk0612/Quick-Anydesk-Connecter/releases/latest"
 	updateExeAssetName  = "QuickAnydeskConnect.exe"
 	updateHashAssetName = "QuickAnydeskConnect.exe.sha256"
@@ -44,10 +45,11 @@ type updateCheckResult struct {
 }
 
 type updateDownloadResult struct {
-	updaterPath string
-	newExePath  string
-	targetPath  string
-	err         error
+	updaterPath  string
+	newExePath   string
+	targetPath   string
+	latestVersion string
+	err           error
 }
 
 type updaterMessages struct {
@@ -153,7 +155,6 @@ func handleUpdateCheckResult() {
 	if messageBoxResult(mainWindow, question, m.title, MB_YESNO|MB_ICONQUESTION|MB_TOPMOST|MB_SETFOREGROUND) != IDYES {
 		return
 	}
-	messageBox(mainWindow, m.downloading, m.title, MB_OK|MB_TOPMOST|MB_SETFOREGROUND)
 	startUpdateDownload(result.release)
 }
 
@@ -180,8 +181,22 @@ func startUpdateDownload(release githubRelease) {
 	updateDownloadBusy = true
 	updateMu.Unlock()
 	refreshTrayAppearance()
+
+	latest := strings.TrimPrefix(strings.TrimSpace(release.TagName), "v")
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := openUpdateProgressWindow(latest, cancel); err != nil {
+		cancel()
+		updateMu.Lock()
+		updateDownloadBusy = false
+		updateMu.Unlock()
+		refreshTrayAppearance()
+		showError(err.Error())
+		return
+	}
+	publishUpdateProgress(updateUIText("업데이트 파일 다운로드 준비 중...", "Preparing update download..."), "0%", 0, true)
+
 	go func() {
-		result := prepareUpdate(release)
+		result := prepareUpdate(ctx, release)
 		updateMu.Lock()
 		pendingUpdateDownload = result
 		updateMu.Unlock()
@@ -196,12 +211,28 @@ func handleUpdateDownloadResult() {
 	updateDownloadBusy = false
 	updateMu.Unlock()
 	refreshTrayAppearance()
+
 	if result.err != nil {
+		closeUpdateProgressWindow()
+		if errors.Is(result.err, context.Canceled) {
+			messageBox(mainWindow, updateUIText("업데이트가 취소되었습니다.\n\n현재 버전은 변경되지 않았습니다.", "The update was cancelled.\n\nThe current version was not changed."), currentUpdaterMessages().title, MB_OK|MB_TOPMOST|MB_SETFOREGROUND)
+			return
+		}
 		showError(fmt.Sprintf(currentUpdaterMessages().downloadFailure, result.err))
 		return
 	}
-	cmd := exec.Command(result.updaterPath, "--apply-update", result.targetPath, result.newExePath)
+
+	state := updateProgressSnapshot{
+		status: updateUIText("업데이트를 적용할 준비를 하는 중...", "Preparing to apply the update..."),
+		detail: updateUIText("이 단계부터는 업데이트를 중단할 수 없습니다.", "The update can no longer be cancelled."),
+		percent: 100,
+		cancelable: false,
+	}
+	applyUpdateProgressState(state)
+
+	cmd := exec.Command(result.updaterPath, "--apply-update", result.targetPath, result.newExePath, appVersion, result.latestVersion, language)
 	if err := cmd.Start(); err != nil {
+		closeUpdateProgressWindow()
 		showError(fmt.Sprintf(currentUpdaterMessages().applyFailure, err))
 		return
 	}
@@ -231,7 +262,9 @@ func fetchLatestRelease() (githubRelease, error) {
 	return release, nil
 }
 
-func prepareUpdate(release githubRelease) updateDownloadResult {
+func prepareUpdate(ctx context.Context, release githubRelease) updateDownloadResult {
+	latest := strings.TrimPrefix(strings.TrimSpace(release.TagName), "v")
+	result := updateDownloadResult{latestVersion: latest}
 	var exeURL, hashURL string
 	for _, asset := range release.Assets {
 		switch asset.Name {
@@ -242,41 +275,64 @@ func prepareUpdate(release githubRelease) updateDownloadResult {
 		}
 	}
 	if exeURL == "" || hashURL == "" {
-		return updateDownloadResult{err: errors.New(currentUpdaterMessages().assetMissing)}
+		result.err = errors.New(currentUpdaterMessages().assetMissing)
+		return result
 	}
 	target, err := os.Executable()
 	if err != nil {
-		return updateDownloadResult{err: err}
+		result.err = err
+		return result
 	}
 	target, err = filepath.Abs(target)
 	if err != nil {
-		return updateDownloadResult{err: err}
+		result.err = err
+		return result
 	}
 	tempDir, err := os.MkdirTemp("", "QuickAnydeskConnect-update-*")
 	if err != nil {
-		return updateDownloadResult{err: err}
+		result.err = err
+		return result
 	}
+	success := false
+	defer func() {
+		if !success {
+			_ = os.RemoveAll(tempDir)
+		}
+	}()
+
 	newExe := filepath.Join(tempDir, "QuickAnydeskConnect.new.exe")
 	hashFile := filepath.Join(tempDir, updateHashAssetName)
-	updater := filepath.Join(tempDir, "QuickAnydeskConnect.updater.exe")
-	if err := downloadFile(exeURL, newExe); err != nil {
-		return updateDownloadResult{err: err}
+	if err := downloadUpdateFile(ctx, exeURL, newExe, true); err != nil {
+		result.err = err
+		return result
 	}
-	if err := downloadFile(hashURL, hashFile); err != nil {
-		return updateDownloadResult{err: err}
+	publishUpdateProgress(updateUIText("검증 정보를 다운로드하는 중...", "Downloading verification data..."), updateUIText("SHA-256 체크섬을 가져오고 있습니다.", "Retrieving the SHA-256 checksum."), 100, true)
+	if err := downloadUpdateFile(ctx, hashURL, hashFile, false); err != nil {
+		result.err = err
+		return result
 	}
+	if err := ctx.Err(); err != nil {
+		result.err = err
+		return result
+	}
+	publishUpdateProgress(updateUIText("다운로드한 파일을 확인하는 중...", "Verifying the downloaded file..."), "SHA-256", 100, false)
 	if err := verifySHA256File(newExe, hashFile); err != nil {
-		return updateDownloadResult{err: err}
+		result.err = err
+		return result
 	}
-	if err := copyFile(target, updater); err != nil {
-		return updateDownloadResult{err: err}
-	}
-	return updateDownloadResult{updaterPath: updater, newExePath: newExe, targetPath: target}
+
+	// Run the verified new executable itself as the temporary updater. That lets
+	// the updater use the newly downloaded update UI while the old EXE exits.
+	result.updaterPath = newExe
+	result.newExePath = newExe
+	result.targetPath = target
+	success = true
+	return result
 }
 
-func downloadFile(url, path string) error {
+func downloadUpdateFile(ctx context.Context, url, path string, reportProgress bool) error {
 	client := &http.Client{Timeout: 90 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
@@ -294,8 +350,49 @@ func downloadFile(url, path string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = io.Copy(f, io.LimitReader(resp.Body, 100<<20))
-	return err
+
+	const maxSize = int64(100 << 20)
+	var total int64 = resp.ContentLength
+	if total > maxSize {
+		return fmt.Errorf("download exceeds size limit")
+	}
+	reader := io.LimitReader(resp.Body, maxSize+1)
+	buf := make([]byte, 64*1024)
+	var written int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, readErr := reader.Read(buf)
+		if n > 0 {
+			written += int64(n)
+			if written > maxSize {
+				return fmt.Errorf("download exceeds size limit")
+			}
+			if _, err := f.Write(buf[:n]); err != nil {
+				return err
+			}
+			if reportProgress {
+				percent := 0
+				detail := fmt.Sprintf("%.1f MB", float64(written)/(1024*1024))
+				if total > 0 {
+					percent = int((written * 100) / total)
+					if percent > 100 {
+						percent = 100
+					}
+					detail = fmt.Sprintf("%.1f MB / %.1f MB  (%d%%)", float64(written)/(1024*1024), float64(total)/(1024*1024), percent)
+				}
+				publishUpdateProgress(updateUIText("업데이트 파일을 다운로드하는 중...", "Downloading update file..."), detail, percent, true)
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+	return nil
 }
 
 func verifySHA256File(exePath, hashPath string) error {
@@ -337,7 +434,7 @@ func verifySHA256File(exePath, hashPath string) error {
 	return nil
 }
 
-func runApplyUpdate(targetPath, newExePath string) error {
+func runApplyUpdate(targetPath, newExePath, oldVersion, newVersion, lang string) error {
 	time.Sleep(700 * time.Millisecond)
 	backup := targetPath + ".update-backup"
 	_ = os.Remove(backup)
@@ -353,8 +450,10 @@ func runApplyUpdate(targetPath, newExePath string) error {
 			return err
 		}
 		_ = os.Remove(backup)
-		if err := exec.Command(targetPath).Start(); err != nil {
-			return err
+		if err := runUpdateCompleteCountdown(targetPath, oldVersion, newVersion, lang); err != nil {
+			if startErr := exec.Command(targetPath).Start(); startErr != nil {
+				return fmt.Errorf("update completed but restart failed: %w", startErr)
+			}
 		}
 		return nil
 	}
