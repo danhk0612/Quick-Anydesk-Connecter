@@ -167,8 +167,8 @@ func publishUpdateProgress(status, detail string, percent int, cancelable bool) 
 	updateMu.Lock()
 	updateProgressState = updateProgressSnapshot{status: status, detail: detail, percent: percent, cancelable: cancelable}
 	updateMu.Unlock()
-	if mainWindow != 0 {
-		procPostMessageW.Call(mainWindow, WM_UPDATE_PROGRESS, 0, 0)
+	if updateProgressWindow != 0 {
+		procPostMessageW.Call(updateProgressWindow, WM_UPDATE_PROGRESS, 0, 0)
 	}
 }
 
@@ -212,6 +212,9 @@ func requestUpdateCancel() {
 
 func updateProgressWindowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	switch message {
+	case WM_UPDATE_PROGRESS:
+		handleUpdateProgressUI()
+		return 0
 	case WM_COMMAND:
 		if uint16(wParam&0xffff) == ID_UPDATE_CANCEL {
 			requestUpdateCancel()
