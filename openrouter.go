@@ -19,8 +19,6 @@ const (
 	defaultOpenRouterModel = "google/gemma-4-26b-a4b-it:free"
 )
 
-// openRouterHTTPError preserves OpenRouter/provider details while still
-// allowing errors.Is checks against the categorized sentinel error.
 type openRouterHTTPError struct {
 	kind   error
 	status int
@@ -88,7 +86,8 @@ func isUpstreamProviderRateLimit(raw []byte) bool {
 }
 
 func validateOpenRouterKey(key string) error {
-	if strings.TrimSpace(key) == "" {
+	key = normalizeOpenRouterKeyInput(key)
+	if key == "" {
 		return fmt.Errorf("%s", currentMessages().errOpenRouterKeyEmpty)
 	}
 
@@ -138,6 +137,7 @@ func configureOpenRouter() bool {
 	if err != nil {
 		return false
 	}
+	key = normalizeOpenRouterKeyInput(key)
 	if err := validateOpenRouterKey(key); err != nil {
 		showOpenRouterError(err)
 		return false
@@ -216,6 +216,7 @@ func analyzeImageForAnyDesk(pngData []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	key = normalizeOpenRouterKeyInput(key)
 	if key == "" {
 		return "", fmt.Errorf("%s", currentMessages().errOpenRouterKeyEmpty)
 	}
