@@ -12,9 +12,13 @@ const (
 	emGetSel              = 0x00B0
 	emSetSel              = 0x00B1
 	emSetPasswordChar     = 0x00CC
+	wmSetText             = 0x000C
 )
 
-var dialogPasswordVisible bool
+var (
+	dialogPasswordVisible          bool
+	dialogPasswordVisibilityButton uintptr
+)
 
 func askAnyDeskID() (string, error) {
 	m := currentMessages()
@@ -23,6 +27,7 @@ func askAnyDeskID() (string, error) {
 		m.connectTitle,
 		m.connectField,
 		m.connectDescription,
+		"",
 		false,
 		m.connectButton,
 	)
@@ -35,6 +40,7 @@ func askPassword() (string, error) {
 		m.setupTitle,
 		m.setupPassword,
 		m.setupDescription,
+		"",
 		true,
 		m.saveButton,
 	)
@@ -42,7 +48,15 @@ func askPassword() (string, error) {
 
 func askNewPassword() (string, error) {
 	m := currentMessages()
-	return showInputDialog(modePassword, m.changePasswordTitle, m.setupPassword, m.changePasswordDescription, true, m.saveButton)
+	return showInputDialog(
+		modePassword,
+		m.changePasswordTitle,
+		m.setupPassword,
+		m.changePasswordDescription,
+		password,
+		true,
+		m.saveButton,
+	)
 }
 
 func askOpenRouterSettings(existingKey, existingModel string) (string, string, error) {
@@ -153,7 +167,7 @@ func askOpenRouterSettings(existingKey, existingModel string) (string, string, e
 	return dialogValue, dialogModelValue, nil
 }
 
-func showInputDialog(mode dialogMode, title, fieldLabel, description string, passwordField bool, okText string) (string, error) {
+func showInputDialog(mode dialogMode, title, fieldLabel, description, initialValue string, passwordField bool, okText string) (string, error) {
 	if dialogActive {
 		return "", errCancelled
 	}
@@ -215,28 +229,29 @@ func showInputDialog(mode dialogMode, title, fieldLabel, description string, pas
 	editWidth := uintptr(400)
 	if passwordField {
 		editStyle |= ES_PASSWORD
-		editWidth = 360
+		editWidth = 312
 	}
 
 	editClass, _ := syscall.UTF16PtrFromString("EDIT")
-	empty, _ := syscall.UTF16PtrFromString("")
+	initialW, _ := syscall.UTF16PtrFromString(initialValue)
 	dialogEdit, _, _ = procCreateWindowExW.Call(
-		0, uintptr(unsafe.Pointer(editClass)), uintptr(unsafe.Pointer(empty)),
+		0, uintptr(unsafe.Pointer(editClass)), uintptr(unsafe.Pointer(initialW)),
 		editStyle, 24, 90, editWidth, 28, dialogWindow, ID_EDIT, hInstance, 0,
 	)
 	setFont(dialogEdit, font)
 
 	buttonClass, _ := syscall.UTF16PtrFromString("BUTTON")
+	dialogPasswordVisibilityButton = 0
+	dialogPasswordVisible = false
 	if passwordField {
-		eyeW, _ := syscall.UTF16PtrFromString("👁")
-		eyeBtn, _, _ := procCreateWindowExW.Call(
-			0, uintptr(unsafe.Pointer(buttonClass)), uintptr(unsafe.Pointer(eyeW)),
+		dialogPasswordVisibilityButton, _, _ = procCreateWindowExW.Call(
+			0, uintptr(unsafe.Pointer(buttonClass)), 0,
 			WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
-			388, 90, 36, 28, dialogWindow, idPasswordVisibility, hInstance, 0,
+			340, 90, 84, 28, dialogWindow, idPasswordVisibility, hInstance, 0,
 		)
-		setFont(eyeBtn, font)
-		dialogPasswordVisible = false
+		setFont(dialogPasswordVisibilityButton, font)
 		procSendMessageW.Call(dialogEdit, emSetPasswordChar, uintptr('●'), 0)
+		refreshPasswordVisibilityButton()
 	}
 
 	okW, _ := syscall.UTF16PtrFromString(okText)
@@ -339,6 +354,8 @@ func dialogWindowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uint
 
 	case WM_DESTROY:
 		dialogWindow = 0
+		dialogPasswordVisibilityButton = 0
+		dialogPasswordVisible = false
 		return 0
 	}
 
@@ -362,7 +379,28 @@ func togglePasswordVisibility() {
 	}
 	procSendMessageW.Call(dialogEdit, emSetPasswordChar, mask, 0)
 	procSendMessageW.Call(dialogEdit, emSetSel, start, end)
+	refreshPasswordVisibilityButton()
 	procSetFocus.Call(dialogEdit)
+}
+
+func refreshPasswordVisibilityButton() {
+	if dialogPasswordVisibilityButton == 0 {
+		return
+	}
+
+	text := "👁 보기"
+	if language == "en" {
+		text = "👁 Show"
+	}
+	if dialogPasswordVisible {
+		text = "👁 숨기기"
+		if language == "en" {
+			text = "👁 Hide"
+		}
+	}
+
+	textW, _ := syscall.UTF16PtrFromString(text)
+	procSendMessageW.Call(dialogPasswordVisibilityButton, wmSetText, 0, uintptr(unsafe.Pointer(textW)))
 }
 
 func submitDialog() {
