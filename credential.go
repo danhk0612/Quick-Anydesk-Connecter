@@ -11,6 +11,7 @@ import (
 const openRouterCredentialTarget = "QuickAnydeskConnect/OpenRouter"
 
 func saveOpenRouterAPIKey(key string) error {
+	key = normalizeOpenRouterKeyInput(key)
 	if key == "" {
 		return fmt.Errorf("%s", currentMessages().errOpenRouterKeyEmpty)
 	}
@@ -58,5 +59,5 @@ func loadOpenRouterAPIKey() (string, error) {
 		return "", nil
 	}
 	data := unsafe.Slice(cred.CredentialBlob, int(cred.CredentialBlobSize))
-	return string(append([]byte(nil), data...)), nil
+	return normalizeOpenRouterKeyInput(string(append([]byte(nil), data...))), nil
 }
