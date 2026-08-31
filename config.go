@@ -21,9 +21,17 @@ func loadOrCreateConfig(path string) (string, string, bool, string, error) {
 	}
 
 	language = "ko"
-	p, err = askPassword()
-	if err != nil {
-		return "", "ko", false, defaultOpenRouterModel, err
+	for {
+		p, err = askPassword()
+		if err != nil {
+			return "", "ko", false, defaultOpenRouterModel, err
+		}
+		p = normalizeAnyDeskPasswordInput(p)
+		if err := validateAnyDeskPasswordInput(p); err != nil {
+			showError(err.Error())
+			continue
+		}
+		break
 	}
 
 	if err := saveConfig(path, p, "ko", false, defaultOpenRouterModel); err != nil {
@@ -66,7 +74,7 @@ func readConfig(path string) (string, string, bool, string, error) {
 		switch section {
 		case "anydesk":
 			if key == "password" {
-				p = value
+				p = normalizeAnyDeskPasswordInput(value)
 			}
 		case "general":
 			switch key {
@@ -90,12 +98,16 @@ func readConfig(path string) (string, string, bool, string, error) {
 	if p == "" {
 		return "", "ko", false, defaultOpenRouterModel, fmt.Errorf("%s", currentMessages().errPasswordMissing)
 	}
+	if err := validateAnyDeskPasswordInput(p); err != nil {
+		return "", "ko", false, defaultOpenRouterModel, err
+	}
 	return p, lang, imageEnabled, model, nil
 }
 
 func saveConfig(path, p, lang string, imageEnabled bool, model string) error {
-	if p == "" {
-		return fmt.Errorf("%s", currentMessages().errPasswordEmpty)
+	p = normalizeAnyDeskPasswordInput(p)
+	if err := validateAnyDeskPasswordInput(p); err != nil {
+		return err
 	}
 	if lang != "en" {
 		lang = "ko"
@@ -117,7 +129,15 @@ func saveConfig(path, p, lang string, imageEnabled bool, model string) error {
 }
 
 func persistConfig() error {
-	return saveConfig(configPath, password, language, imageAnalysisEnabled, openRouterModel)
+	cleanPassword := normalizeAnyDeskPasswordInput(password)
+	if err := validateAnyDeskPasswordInput(cleanPassword); err != nil {
+		return err
+	}
+	if err := saveConfig(configPath, cleanPassword, language, imageAnalysisEnabled, openRouterModel); err != nil {
+		return err
+	}
+	password = cleanPassword
+	return nil
 }
 
 func setLanguage(lang string) {
