@@ -11,8 +11,19 @@ import (
 )
 
 func main() {
-	if len(os.Args) == 4 && os.Args[1] == "--apply-update" {
-		if err := runApplyUpdate(os.Args[2], os.Args[3]); err != nil {
+	if len(os.Args) >= 4 && os.Args[1] == "--apply-update" {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		oldVersion := ""
+		newVersion := appVersion
+		lang := "ko"
+		if len(os.Args) >= 7 {
+			oldVersion = os.Args[4]
+			newVersion = os.Args[5]
+			lang = os.Args[6]
+		}
+		if err := runApplyUpdate(os.Args[2], os.Args[3], oldVersion, newVersion, lang); err != nil {
 			showError(fmt.Sprintf("업데이트 적용에 실패했습니다.\n\n%v", err))
 		}
 		return
