@@ -4,18 +4,19 @@
 
 Quick Anydesk Connect is a lightweight Windows tray utility that streamlines repeated AnyDesk remote-support connections.
 
-It watches the clipboard for a 9- or 10-digit AnyDesk address, asks for confirmation, and starts a connection using a configured unattended-access password. If the configured password does not match the remote PC, AnyDesk can prompt for the actual password as usual.
+It watches the clipboard for newly copied AnyDesk addresses, including 9- or 10-digit numeric IDs and AnyDesk Alias values such as `desktop-fulpva4@ad`, asks for confirmation, and starts a connection using a configured unattended-access password. If the configured password does not match the remote PC, AnyDesk can prompt for the actual password as usual.
 
 ## Features
 
 - Runs in the Windows notification area (system tray)
-- Detects newly copied 9- or 10-digit AnyDesk addresses
+- Detects newly copied 9- or 10-digit AnyDesk numeric IDs
+- Detects AnyDesk Alias addresses such as `desktop-fulpva4@ad`
 - Always-on-top confirmation before connecting
 - Manual connection from the tray menu or by double-clicking the tray icon
 - Automatically submits a configured unattended-access password
 - Starts AnyDesk first when AnyDesk has been fully exited, then connects after initialization
 - Checked Windows startup toggle
-- Manual update checks through GitHub Releases with SHA-256 verification, self-replacement, and restart
+- Manual update checks through GitHub Releases with SHA-256 verification, self-replacement, progress/status display, cancellation before replacement, and automatic restart countdown
 - Clipboard image preview with explicit approval before OpenRouter Vision analysis
 - OpenRouter API Key stored in Windows Credential Manager
 - Settings reset, backup, and restore
@@ -45,13 +46,15 @@ C:\Program Files\AnyDesk\AnyDesk.exe
 
 1. Run `QuickAnydeskConnect.exe`.
 2. On first launch, enter the shared unattended-access password.
-3. Copy a customer's AnyDesk address from a messenger or other application.
+3. Copy a customer's AnyDesk numeric ID or Alias from a messenger or other application.
 4. When the confirmation dialog appears, choose **Yes** to connect.
 
 You can also open a manual connection dialog by:
 
 - Double-clicking the tray icon, or
 - Right-clicking the tray icon and selecting **Remote Connection**.
+
+The manual dialog accepts both numeric IDs and AnyDesk Alias addresses.
 
 ### Tray menu
 
@@ -118,6 +121,8 @@ On first activation, enter an OpenRouter API Key. The key is validated with the 
 
 Clipboard images are **not** sent automatically. The application first displays the copied image with **Analyze / Ignore** controls. The image is sent to OpenRouter only after you explicitly choose **Analyze**. The preview uses high-quality interpolation when scaled to fit the window. For analysis, only oversized images are downscaled while preserving aspect ratio, with the longest side capped at 1600 px; smaller images are never enlarged.
 
+Image analysis remains focused on reading numeric AnyDesk IDs from screenshots. Alias detection is applied to clipboard text and manual address entry, not to image-analysis results.
+
 In **OpenRouter Settings**, you can enter both the API Key and the model ID directly. The dialog also includes a button that opens the OpenRouter API Keys page. The default model is `google/gemma-4-26b-a4b-it:free`, but the model field is not restricted to a predefined list. Any OpenRouter model that accepts image input can be entered.
 
 ### Suggested image-capable models
@@ -140,14 +145,34 @@ OpenRouter is a separate service and API usage may incur charges. Create or mana
 
 ## AnyDesk address detection
 
-Clipboard text is normalized by removing spaces, tabs, line breaks, and hyphens. The resulting value must be exactly 9 or 10 digits.
+Clipboard text and manual input support both numeric AnyDesk IDs and AnyDesk Alias addresses.
 
-Examples that are accepted:
+For numeric IDs, spaces, tabs, line breaks, and hyphens are removed. The normalized result must be exactly 9 or 10 digits.
+
+Accepted numeric examples:
 
 ```text
 123456789
 123 456 789
 123-456-789
+```
+
+For AnyDesk Alias values, clipboard whitespace is removed while valid Alias characters such as hyphens, dots, and underscores are preserved. The value is normalized to lowercase and must follow the `name@namespace` format using supported Alias characters, with a maximum length of 25 characters.
+
+Accepted Alias examples:
+
+```text
+desktop-fulpva4@ad
+PC_01@ad
+office.pc@company
+```
+
+These are normalized respectively to:
+
+```text
+desktop-fulpva4@ad
+pc_01@ad
+office.pc@company
 ```
 
 ## Building

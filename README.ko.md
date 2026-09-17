@@ -4,18 +4,19 @@
 
 Quick Anydesk Connect는 반복적인 AnyDesk 원격 지원 접속 절차를 간소화하기 위한 가벼운 Windows 트레이 유틸리티입니다.
 
-클립보드에 새로 복사된 9자리 또는 10자리 AnyDesk 원격 번호를 감지하고 접속 여부를 확인한 뒤, 설정된 무인 접속 기본 암호를 자동으로 제출합니다. 기본 암호가 원격 PC와 다르면 기존 AnyDesk 암호 입력창에서 실제 암호를 입력할 수 있습니다.
+클립보드에 새로 복사된 AnyDesk 주소를 감지합니다. 9자리/10자리 숫자 ID뿐 아니라 `desktop-fulpva4@ad` 같은 AnyDesk Alias도 지원하며, 접속 여부를 확인한 뒤 설정된 무인 접속 기본 암호를 자동으로 제출합니다. 기본 암호가 원격 PC와 다르면 기존 AnyDesk 암호 입력창에서 실제 암호를 입력할 수 있습니다.
 
 ## 주요 기능
 
 - Windows 알림 영역(트레이)에 상주
-- 새로 복사된 9자리/10자리 AnyDesk 번호 자동 감지
+- 새로 복사된 9자리/10자리 AnyDesk 숫자 ID 자동 감지
+- `desktop-fulpva4@ad` 같은 AnyDesk Alias 주소 자동 감지
 - 다른 창 위에 표시되는 접속 확인창
-- 트레이 메뉴 또는 트레이 아이콘 더블클릭으로 직접 번호 입력
+- 트레이 메뉴 또는 트레이 아이콘 더블클릭으로 직접 주소 입력
 - 설정된 무인 접속 기본 암호 자동 제출
 - AnyDesk가 완전히 종료된 경우 먼저 AnyDesk를 시작한 뒤 초기화 후 접속
 - Windows 시작 프로그램 체크 토글
-- GitHub Releases 기반 수동 업데이트 확인 및 SHA-256 검증 후 자동 교체/재시작
+- GitHub Releases 기반 수동 업데이트 확인, SHA-256 검증, 진행률/현재 상태 표시, 교체 전 취소, 자동 재시작 카운트다운
 - 클립보드 이미지 미리보기 후 사용자 승인 시 OpenRouter Vision으로 AnyDesk 번호 분석
 - OpenRouter API Key는 Windows Credential Manager에 저장
 - 설정 초기화 / 백업 / 복원
@@ -45,13 +46,15 @@ C:\Program Files\AnyDesk\AnyDesk.exe
 
 1. `QuickAnydeskConnect.exe`를 실행합니다.
 2. 최초 실행 시 공통으로 사용할 AnyDesk 무인 접속 암호를 입력합니다.
-3. 메신저 등에서 고객의 AnyDesk 원격 번호를 복사합니다.
+3. 메신저 등에서 고객의 AnyDesk 숫자 ID 또는 Alias 주소를 복사합니다.
 4. 접속 확인창이 뜨면 **예**를 선택합니다.
 
-직접 번호를 입력하려면:
+직접 주소를 입력하려면:
 
 - 트레이 아이콘을 더블클릭하거나
 - 트레이 아이콘 우클릭 → **원격 접속**을 선택합니다.
+
+수동 입력창에서도 숫자 ID와 AnyDesk Alias 주소를 모두 사용할 수 있습니다.
 
 ### 트레이 메뉴
 
@@ -118,6 +121,8 @@ model=google/gemma-4-26b-a4b-it:free
 
 이미지가 클립보드에 복사되면 곧바로 외부로 전송하지 않습니다. 먼저 이미지 미리보기와 **분석 / 무시** 버튼을 표시하며, 사용자가 **분석**을 선택한 경우에만 이미지가 OpenRouter로 전송됩니다. 미리보기는 화면에 맞게 고품질 보간으로 축소하며, 분석용 이미지는 원본이 큰 경우에만 비율을 유지한 채 긴 변 최대 1600px로 축소한 뒤 전송합니다. 작은 이미지는 확대하지 않습니다.
 
+이미지 분석은 기존대로 스크린샷에서 숫자형 AnyDesk ID를 읽는 용도로 유지합니다. Alias 판별은 클립보드 텍스트와 수동 주소 입력에만 적용되며 이미지 분석 결과에는 적용하지 않습니다.
+
 **OpenRouter 설정**에서는 API Key와 모델 ID를 모두 직접 입력할 수 있습니다. 같은 창의 버튼으로 OpenRouter API Key 발급 페이지도 열 수 있습니다. 기본 모델은 `google/gemma-4-26b-a4b-it:free`이지만 모델 입력란은 정해진 목록으로 제한하지 않습니다. 이미지 입력을 지원하는 OpenRouter 모델이면 원하는 모델 ID를 직접 입력할 수 있습니다.
 
 ### 추천 이미지 분석 모델
@@ -138,16 +143,36 @@ model=google/gemma-4-26b-a4b-it:free
 
 OpenRouter는 별도 서비스이며 사용량에 따라 API 비용이 발생할 수 있습니다. API Key는 <https://openrouter.ai/settings/keys>에서 생성하거나 관리할 수 있습니다.
 
-## AnyDesk 번호 판별
+## AnyDesk 주소 판별
 
-클립보드 텍스트에서 공백, 탭, 줄바꿈, 하이픈을 제거한 뒤 최종 값이 정확히 9자리 또는 10자리 숫자인 경우에만 AnyDesk 번호로 인식합니다.
+클립보드 텍스트와 수동 입력은 **숫자형 AnyDesk ID와 AnyDesk Alias를 모두 지원**합니다.
 
-허용 예:
+숫자 ID는 공백, 탭, 줄바꿈, 하이픈을 제거한 뒤 최종 값이 정확히 9자리 또는 10자리 숫자인 경우에 인식합니다.
+
+숫자 ID 허용 예:
 
 ```text
 123456789
 123 456 789
 123-456-789
+```
+
+AnyDesk Alias는 복사 과정에서 섞인 공백/탭/줄바꿈을 제거하지만, Alias에 사용할 수 있는 하이픈(`-`), 점(`.`), 밑줄(`_`)은 보존합니다. 최종 값은 소문자로 정규화하며 `name@namespace` 형식과 지원 문자 규칙을 따르고 최대 길이는 25자입니다.
+
+Alias 허용 예:
+
+```text
+desktop-fulpva4@ad
+PC_01@ad
+office.pc@company
+```
+
+위 값은 각각 다음처럼 정규화됩니다.
+
+```text
+desktop-fulpva4@ad
+pc_01@ad
+office.pc@company
 ```
 
 ## 빌드
