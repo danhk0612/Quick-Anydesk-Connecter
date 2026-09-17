@@ -5,12 +5,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"syscall"
 	"time"
 	"unsafe"
 )
+
+var anyDeskAliasPattern = regexp.MustCompile(`^[a-z0-9._-]+@[a-z0-9._-]+$`)
 
 type pathCandidate struct {
 	path    string
@@ -52,12 +55,29 @@ func findAnyDesk() (string, error) {
 	return candidates[0].path, nil
 }
 
+// normalizeID normalizes either a numeric AnyDesk ID or an AnyDesk Alias.
+// Numeric IDs keep the existing convenience behavior (spaces and hyphens are
+// ignored). Aliases preserve '-', '.', and '_' because they are valid Alias
+// characters, while clipboard whitespace is removed and case is normalized.
 func normalizeID(s string) string {
 	s = strings.TrimSpace(s)
 
+	if strings.Contains(s, "@") {
+		var b strings.Builder
+		b.Grow(len(s))
+		for _, r := range s {
+			switch r {
+			case ' ', '\t', '\r', '\n':
+				continue
+			default:
+				b.WriteRune(r)
+			}
+		}
+		return strings.ToLower(b.String())
+	}
+
 	var b strings.Builder
 	b.Grow(len(s))
-
 	for _, r := range s {
 		switch r {
 		case ' ', '\t', '\r', '\n', '-':
@@ -71,7 +91,12 @@ func normalizeID(s string) string {
 }
 
 func isAnyDeskID(s string) bool {
-	return idPattern.MatchString(s)
+	if idPattern.MatchString(s) {
+		return true
+	}
+	// AnyDesk documents Alias values as <name>@<namespace>, using a-z, 0-9,
+	// '-', '.', '_' and a maximum total length of 25 characters.
+	return len(s) <= 25 && anyDeskAliasPattern.MatchString(strings.ToLower(s))
 }
 
 func ensureAnyDeskRunning(anyDeskPath string) error {
