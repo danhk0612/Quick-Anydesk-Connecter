@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	appVersion          = "1.6.0"
+	appVersion          = "1.6.1"
 	latestReleaseAPI    = "https://api.github.com/repos/danhk0612/Quick-Anydesk-Connecter/releases/latest"
 	updateExeAssetName  = "QuickAnydeskConnect.exe"
 	updateHashAssetName = "QuickAnydeskConnect.exe.sha256"
